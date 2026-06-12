@@ -72,3 +72,16 @@ lookahead_hours = 24
 The example general-news feeds are NPR and BBC News. The AP URL from the
 original spec currently redirects to HTML rather than RSS, so it is not shipped
 as an active example feed.
+
+## Scheduling
+
+Example systemd units live in `systemd/`. The templated service runs:
+
+```text
+briefing run --profile <profile> --send
+```
+
+Use separate timers for different profiles/days, for example
+`briefing-daily.timer` for the `daily` profile and `briefing-tech.timer` for
+the `tech` profile. See [systemd/README.md](systemd/README.md) for install and
+check commands.

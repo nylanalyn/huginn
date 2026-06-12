@@ -1,0 +1,10 @@
+[Unit]
+Description=Morning Briefing (%i profile)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/aureate/code/huginn
+EnvironmentFile=/home/aureate/code/huginn/.env
+ExecStart=/home/aureate/code/huginn/.venv/bin/briefing run --profile %i --send

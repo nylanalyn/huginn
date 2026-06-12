@@ -1,0 +1,11 @@
+[Unit]
+Description=Run weekend morning briefing
+
+[Timer]
+Unit=briefing@weekend.service
+OnCalendar=Sat,Sun 09:00
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target
