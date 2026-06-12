@@ -1,0 +1,43 @@
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+config.toml
+calendar.json
+
+# Local runtime state
+*.sqlite
+*.sqlite3
+*.db
+briefing.sqlite3
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Packaging/build artifacts
+*.egg-info/
+build/
+dist/
+pip-wheel-metadata/
+
+# Test/coverage/type-check artifacts
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+
+# Tool/editor noise
+.DS_Store
+.idea/
+.vscode/

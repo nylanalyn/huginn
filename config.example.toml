@@ -1,0 +1,79 @@
+[bot]
+timezone = "America/New_York"
+database_path = "briefing.sqlite3"
+
+[discord]
+webhook_url_env = "DISCORD_WEBHOOK_URL"
+
+[discord.interactive]
+enabled = false
+token_env = "DISCORD_BOT_TOKEN"
+allowed_guild_ids = [123456789]
+allowed_channel_ids = [987654321]
+allowed_user_ids = []
+
+[llm]
+enabled = true
+base_url = "http://localhost:11434/v1"
+model = "llama3.1:8b"
+temperature = 0.2
+timeout_seconds = 60
+persona_path = "personas/default.md"
+
+[profiles.daily]
+sections = ["weather", "calendar", "news"]
+
+[profiles.tech]
+sections = ["weather", "calendar", "tech"]
+
+[sections.weather]
+type = "weather"
+enabled = true
+provider = "open-meteo"
+latitude = 40.7128
+longitude = -74.0060
+units = "imperial"
+
+[sections.calendar]
+type = "calendar"
+enabled = true
+source = "json"
+json_path = "calendar.json"
+lookahead_hours = 24
+
+[sections.news]
+type = "rss"
+enabled = true
+use_llm = true
+max_items = 8
+since_hours = 24
+extract_full_article = false
+feeds = ["npr", "bbc"]
+
+[sections.tech]
+type = "rss"
+enabled = true
+use_llm = true
+max_items = 8
+since_hours = 24
+feeds = ["ars", "lobsters"]
+
+[feeds.npr]
+name = "NPR News"
+url = "https://feeds.npr.org/1001/rss.xml"
+priority = 8
+
+[feeds.bbc]
+name = "BBC News"
+url = "https://feeds.bbci.co.uk/news/rss.xml"
+priority = 9
+
+[feeds.ars]
+name = "Ars Technica"
+url = "https://feeds.arstechnica.com/arstechnica/index"
+priority = 8
+
+[feeds.lobsters]
+name = "Lobsters"
+url = "https://lobste.rs/rss"
+priority = 6
