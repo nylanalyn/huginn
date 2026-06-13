@@ -525,14 +525,15 @@ High 91°F, scattered storms likely after 2 PM.
   Source: Example Feed — https://...
 ```
 
-## Interactive Discord Mode (Later Stage)
+## Interactive Discord Mode
 
-Slash commands first; deterministic mention routing second; persona chat third.
+Slash commands first; deterministic mention routing second; persona chat and opt-in memory third.
 
 ```
 /briefing now
 /briefing news
 /briefing tech
+/briefing profile profile:<profile>
 /weather
 /calendar today
 /watch add term:<term>
@@ -541,6 +542,9 @@ Slash commands first; deterministic mention routing second; persona chat third.
 /search items query:<query>
 /feeds list
 /summarize url:<url>
+/memory remember fact:<fact>
+/memory list
+/memory clear
 ```
 
 **Implementation note:** Discord interactions must be acknowledged within 3 seconds. Briefing generation takes longer, so every command defers (`defer()`) immediately and posts the result as a follow-up. This goes in the spec so it isn't discovered in production.
@@ -553,9 +557,9 @@ Mention handling:
 * Respond only when the bot is directly mentioned and the guild/channel/user allowlist permits the message.
 * Strip bot mentions before routing.
 * `help`, `what can you do`, and `commands` return deterministic command help, not an LLM answer.
-* Known deterministic intents (`briefing`, `news`, `tech`, `weather`, `calendar`, `search`, `watch`) route to application code.
+* Known deterministic intents (`briefing`, configured profile names, section names, `weather`, `calendar`, `search`, `watch`, `memory`) route to application code.
 * Unknown mentions route to mention chat only when `[discord.interactive].mention_chat_enabled = true`; otherwise they return deterministic help.
-* Mention chat is stateless in the first version. Conversation history, remembered facts, and retrieval from the briefing database are later-stage features.
+* Mention chat is stateless by default. Conversation history, remembered facts, and retrieval from the briefing database are opt-in through explicit config and commands.
 
 ## Stage Plan
 
@@ -618,8 +622,8 @@ WantedBy=timers.target
 * **Acceptance:** timer fires and posts; `systemctl list-timers` shows next runs.
 
 ### Stage 7: Discord Slash Commands
-* Long-running `discord.py` bot service. `/briefing now|news|tech`, `/weather`, `/calendar today`. Defer-then-followup on every command. Restricted to configured guild/channel/user IDs.
-* **Acceptance:** `/briefing tech` in Discord generates and posts a tech briefing on demand.
+* Long-running `discord.py` bot service. `/briefing now|news|tech`, `/briefing profile`, `/weather`, `/calendar today`, `/feeds list`, `/summarize url`, `/watch`, `/search`, and `/memory` commands. Defer-then-followup on every command. Restricted to configured guild/channel/user IDs.
+* **Acceptance:** `/briefing profile profile:tech` in Discord generates and posts a tech briefing on demand.
 
 ### Stage 8: Mention Intent Routing and Help
 * Mention-based interaction in allowed Discord contexts. Strip bot mentions, route obvious natural-language requests to the same core functions as slash commands, and keep `help` deterministic.
@@ -679,7 +683,7 @@ pytest. Minimum:
 * All HTTP fetches (feeds, articles, weather, calendar) use timeouts.
 * Interactive commands are restricted to configured server/channel/user IDs.
 * Mention chat is restricted to the same configured server/channel/user IDs.
-* Mention chat is stateless by default and does not persist user messages unless an explicit memory feature is enabled later.
+* Mention chat is stateless by default and does not persist user messages unless an explicit memory feature is enabled in config.
 
 ## Definition of Done
 

@@ -25,7 +25,7 @@ from briefing.render.discord import render_discord_preview
 from briefing.render.text import render_briefing
 from briefing.sections.base import RunContext
 from briefing.utils.logging import configure_logging
-from briefing.utils.time import parse_duration_hours
+from briefing.utils.time import cutoff_from_hours, parse_duration_hours, utc_now
 
 LOG = logging.getLogger(__name__)
 
@@ -78,12 +78,12 @@ def build_parser() -> argparse.ArgumentParser:
     db_parser = subparsers.add_parser("db", help="Database commands")
     db_subparsers = db_parser.add_subparsers(dest="db_command", required=True)
     db_init = db_subparsers.add_parser("init", help="Initialize database")
-    db_init.set_defaults(func=db_placeholder_command)
+    db_init.set_defaults(func=db_command)
     db_status = db_subparsers.add_parser("status", help="Show database status")
-    db_status.set_defaults(func=db_placeholder_command)
+    db_status.set_defaults(func=db_command)
     db_prune = db_subparsers.add_parser("prune", help="Prune old database records")
     db_prune.add_argument("--older-than", required=True)
-    db_prune.set_defaults(func=db_placeholder_command)
+    db_prune.set_defaults(func=db_command)
 
     health_parser = subparsers.add_parser("health", help="Run health checks")
     health_parser.set_defaults(func=health_command)
@@ -172,7 +172,7 @@ def summarize_command(args: argparse.Namespace) -> int:
     return 0
 
 
-def db_placeholder_command(args: argparse.Namespace) -> int:
+def db_command(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     database = Database(config.bot.database_path)
     if args.db_command == "init":
@@ -183,8 +183,19 @@ def db_placeholder_command(args: argparse.Namespace) -> int:
         print(f"database_path: {config.bot.database_path}")
         print(f"items: {database.count_items()}")
         print(f"briefings: {database.count_briefings()}")
+    elif args.db_command == "prune":
+        try:
+            older_than_hours = parse_duration_hours(args.older_than)
+        except ValueError as exc:
+            raise ConfigError(f"Invalid --older-than value '{args.older_than}': {exc}") from exc
+        cutoff = cutoff_from_hours(utc_now(), older_than_hours)
+        counts = database.prune_older_than(cutoff.isoformat())
+        print(f"pruned records older than {args.older_than}:")
+        print(f"briefings: {counts['briefings']}")
+        print(f"items: {counts['items']}")
+        print(f"conversation_messages: {counts['conversation_messages']}")
     else:
-        print("Database prune is implemented in a later stage.")
+        raise ConfigError(f"Unknown database command: {args.db_command}")
     return 0
 
 

@@ -144,6 +144,12 @@ briefing watch add "Fedora Linux"
 briefing watch list
 ```
 
+Prune old local history:
+
+```bash
+briefing db prune --older-than 90d
+```
+
 Conversational memory is opt-in. Set
 `[discord.interactive].conversation_memory_enabled = true` to keep bounded
 recent mention-chat context, and `remembered_facts_enabled = true` to enable

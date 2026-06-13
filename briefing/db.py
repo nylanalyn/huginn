@@ -259,6 +259,31 @@ class Database:
         with self.connect() as connection:
             return int(connection.execute("SELECT COUNT(*) FROM briefings").fetchone()[0])
 
+    def prune_older_than(self, cutoff_iso: str) -> dict[str, int]:
+        self.init()
+        with self.connect() as connection:
+            briefings_deleted = connection.execute(
+                "DELETE FROM briefings WHERE created_at < ?",
+                (cutoff_iso,),
+            ).rowcount
+            items_deleted = connection.execute(
+                """
+                DELETE FROM items
+                WHERE fetched_at < ?
+                  AND id NOT IN (SELECT item_id FROM briefing_items)
+                """,
+                (cutoff_iso,),
+            ).rowcount
+            conversation_messages_deleted = connection.execute(
+                "DELETE FROM conversation_messages WHERE created_at < ?",
+                (cutoff_iso,),
+            ).rowcount
+        return {
+            "briefings": briefings_deleted,
+            "items": items_deleted,
+            "conversation_messages": conversation_messages_deleted,
+        }
+
     def feed_states(self, feed_keys: list[str] | None = None) -> list[dict[str, str | int | None]]:
         self.init()
         with self.connect() as connection:

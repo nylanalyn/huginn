@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from briefing.cli import main
+from briefing.db import Database
+from briefing.sections.base import RenderedSection
 
 
 def test_dry_run_send_conflict_fails() -> None:
@@ -110,3 +113,63 @@ def test_summarize_url_cli_rejects_invalid_url(tmp_path: Path) -> None:
     config_path.write_text("", encoding="utf-8")
 
     assert main(["--config", str(config_path), "summarize", "url", "not-a-url"]) == 2
+
+
+def test_db_prune_deletes_old_records(tmp_path: Path, capsys) -> None:
+    db_path = tmp_path / "briefing.sqlite3"
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        f"""
+        [bot]
+        database_path = "{db_path}"
+        """,
+        encoding="utf-8",
+    )
+    database = Database(db_path)
+    old = (datetime.now(UTC) - timedelta(days=100)).isoformat()
+    fresh = datetime.now(UTC).isoformat()
+    old_item = database.insert_or_get_item(
+        dedup_hash="old",
+        url="https://example.com/old",
+        guid=None,
+        title="Old item",
+        source="feed",
+        published_at=old,
+        fetched_at=old,
+    )
+    database.save_summary(item_id=old_item.id, model="model", prompt_hash="hash", summary="summary")
+    database.record_sent_briefing(
+        profile="daily",
+        section_names=["news"],
+        rendered_sections=[RenderedSection(title="News", item_ids=[old_item.id])],
+        body="old briefing",
+    )
+    fresh_item = database.insert_or_get_item(
+        dedup_hash="fresh",
+        url="https://example.com/fresh",
+        guid=None,
+        title="Fresh item",
+        source="feed",
+        published_at=fresh,
+        fetched_at=fresh,
+    )
+    database.add_conversation_message(
+        guild_id=1,
+        channel_id=2,
+        user_id=3,
+        role="user",
+        content="old chat",
+    )
+    with database.connect() as connection:
+        connection.execute("UPDATE briefings SET created_at = ?", (old,))
+        connection.execute("UPDATE conversation_messages SET created_at = ?", (old,))
+
+    assert main(["--config", str(config_path), "db", "prune", "--older-than", "90d"]) == 0
+
+    output = capsys.readouterr().out
+    assert "briefings: 1" in output
+    assert "items: 1" in output
+    assert "conversation_messages: 1" in output
+    assert database.count_briefings() == 0
+    assert database.count_items() == 1
+    assert database.items_for_feed("feed")[0].id == fresh_item.id
