@@ -5,6 +5,7 @@ description = "Local-first Discord morning briefing bot"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "discord.py>=2.4,<3",
   "feedparser>=6.0,<7",
   "httpx>=0.27,<1",
   "icalendar>=5.0,<7",

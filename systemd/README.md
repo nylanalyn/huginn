@@ -14,6 +14,7 @@ If you deploy somewhere else, edit `WorkingDirectory`, `EnvironmentFile`, and
 
 ```bash
 sudo cp systemd/briefing@.service /etc/systemd/system/
+sudo cp systemd/briefing-bot.service /etc/systemd/system/
 sudo cp systemd/briefing-daily.timer /etc/systemd/system/
 sudo cp systemd/briefing-tech.timer /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -34,7 +35,9 @@ enabling `briefing-weekend.timer`.
 ```bash
 systemctl list-timers 'briefing*'
 systemctl status briefing-daily.timer
+systemctl status briefing-bot.service
 journalctl -u briefing@daily.service -n 100 --no-pager
+journalctl -u briefing-bot.service -n 100 --no-pager
 ```
 
 ## Manual Run
@@ -47,4 +50,13 @@ The service passes `--send`. For safe manual tests outside systemd, use:
 
 ```bash
 .venv/bin/briefing run --profile daily
+```
+
+## Slash Command Bot
+
+Enable interactive mode in `config.toml`, set `DISCORD_BOT_TOKEN` in `.env`,
+then start the long-running bot service:
+
+```bash
+sudo systemctl enable --now briefing-bot.service
 ```

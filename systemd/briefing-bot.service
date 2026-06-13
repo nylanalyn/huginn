@@ -1,0 +1,15 @@
+[Unit]
+Description=Morning Briefing Discord Slash Command Bot
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/aureate/code/huginn
+EnvironmentFile=/home/aureate/code/huginn/.env
+ExecStart=/home/aureate/code/huginn/.venv/bin/briefing bot
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

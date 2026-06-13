@@ -4,8 +4,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from briefing.cli import render_sections
 from briefing.config import load_config
+from briefing.core import render_sections
 from briefing.sections.base import RunContext
 from briefing.sections.calendar import (
     CalendarEvent,

@@ -85,3 +85,36 @@ Use separate timers for different profiles/days, for example
 `briefing-daily.timer` for the `daily` profile and `briefing-tech.timer` for
 the `tech` profile. See [systemd/README.md](systemd/README.md) for install and
 check commands.
+
+## Discord Slash Commands
+
+Stage 7 adds a long-running Discord bot service:
+
+```bash
+briefing bot
+```
+
+Set `[discord.interactive].enabled = true` in local `config.toml`, set
+`DISCORD_BOT_TOKEN` in `.env`, and keep `allowed_guild_ids` /
+`allowed_channel_ids` restricted. The bot registers:
+
+```text
+/briefing now
+/briefing news
+/briefing tech
+/weather
+/calendar today
+```
+
+Mention-based chat is also available in allowed channels:
+
+```text
+@BotName weather
+@BotName calendar today
+@BotName news
+@BotName tech briefing
+@BotName morning briefing
+```
+
+For mention handling, enable the Message Content Intent for the bot in the
+Discord developer portal.

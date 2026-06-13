@@ -38,3 +38,16 @@ def test_health_with_disabled_llm_succeeds(tmp_path: Path) -> None:
     )
 
     assert main(["--config", str(config_path), "health"]) == 0
+
+
+def test_bot_command_requires_interactive_enabled(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+        [discord.interactive]
+        enabled = false
+        """,
+        encoding="utf-8",
+    )
+
+    assert main(["--config", str(config_path), "bot"]) == 2
