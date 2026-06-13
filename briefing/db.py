@@ -59,6 +59,24 @@ CREATE TABLE IF NOT EXISTS watch_terms (
   term          TEXT UNIQUE NOT NULL,
   created_at    TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS conversation_messages (
+  id            INTEGER PRIMARY KEY,
+  guild_id      TEXT,
+  channel_id    TEXT NOT NULL,
+  user_id       TEXT NOT NULL,
+  role          TEXT NOT NULL,
+  content       TEXT NOT NULL,
+  created_at    TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS remembered_facts (
+  id            INTEGER PRIMARY KEY,
+  user_id       TEXT NOT NULL,
+  fact          TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  UNIQUE(user_id, fact)
+);
 """
 
 
@@ -321,6 +339,102 @@ class Database:
                 """
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def add_conversation_message(
+        self,
+        *,
+        guild_id: int | None,
+        channel_id: int,
+        user_id: int,
+        role: str,
+        content: str,
+    ) -> None:
+        self.init()
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO conversation_messages
+                  (guild_id, channel_id, user_id, role, content, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(guild_id) if guild_id is not None else None,
+                    str(channel_id),
+                    str(user_id),
+                    role,
+                    content,
+                    utc_now_iso(),
+                ),
+            )
+
+    def recent_conversation_messages(
+        self,
+        *,
+        guild_id: int | None,
+        channel_id: int,
+        user_id: int,
+        since_iso: str,
+        limit: int,
+    ) -> list[dict[str, str | int | None]]:
+        self.init()
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, guild_id, channel_id, user_id, role, content, created_at
+                FROM conversation_messages
+                WHERE COALESCE(guild_id, '') = COALESCE(?, '')
+                  AND channel_id = ?
+                  AND user_id = ?
+                  AND created_at >= ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (
+                    str(guild_id) if guild_id is not None else None,
+                    str(channel_id),
+                    str(user_id),
+                    since_iso,
+                    limit,
+                ),
+            ).fetchall()
+        return [dict(row) for row in reversed(rows)]
+
+    def add_remembered_fact(self, *, user_id: int, fact: str) -> bool:
+        self.init()
+        normalized = normalize_watch_term(fact)
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """
+                INSERT OR IGNORE INTO remembered_facts (user_id, fact, created_at)
+                VALUES (?, ?, ?)
+                """,
+                (str(user_id), normalized, utc_now_iso()),
+            )
+            return cursor.rowcount > 0
+
+    def list_remembered_facts(self, *, user_id: int, limit: int = 20) -> list[dict[str, str | int]]:
+        self.init()
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, user_id, fact, created_at
+                FROM remembered_facts
+                WHERE user_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (str(user_id), limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def clear_remembered_facts(self, *, user_id: int) -> int:
+        self.init()
+        with self.connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM remembered_facts WHERE user_id = ?",
+                (str(user_id),),
+            )
+            return cursor.rowcount
 
 
 def normalize_watch_term(term: str) -> str:

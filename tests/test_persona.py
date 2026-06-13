@@ -65,3 +65,17 @@ def test_chat_prompt_uses_persona_without_summary_json_contract(tmp_path: Path) 
     assert "Speak with dry wit." in prompt
     assert "Respond with only a JSON object" not in prompt
     assert "Do not invent stories" not in prompt
+
+
+def test_chat_prompt_can_include_explicit_memory_context(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text("", encoding="utf-8")
+    config = load_config(config_path)
+
+    prompt = build_chat_system_prompt(
+        RunContext(config=config),
+        memory_context="Remembered facts explicitly approved by the user:\n- likes Fedora",
+    )
+
+    assert "Explicit local context follows" in prompt
+    assert "likes Fedora" in prompt

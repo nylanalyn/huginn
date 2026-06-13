@@ -4,7 +4,15 @@ from dataclasses import dataclass
 from typing import Literal
 
 
-TextAction = Literal["watch_add", "watch_list", "search_briefings", "search_items"]
+TextAction = Literal[
+    "watch_add",
+    "watch_list",
+    "search_briefings",
+    "search_items",
+    "memory_remember",
+    "memory_list",
+    "memory_clear",
+]
 FallbackReason = Literal["help", "invalid", "unknown"]
 
 
@@ -26,6 +34,7 @@ HELP_MESSAGE = """I can handle:
 * `/watch add <term>` and `/watch list`
 * `/search briefings <query>` and `/search items <query>`
 * `/feeds list` and `/summarize url <url>`
+* `/memory remember <fact>`, `/memory list`, and `/memory clear`
 
 Mention shortcuts:
 * `@huginn briefing` or `@huginn briefing <profile>`
@@ -60,6 +69,10 @@ def route_mention_text(
     watch_intent = _route_watch(normalized, collapsed)
     if watch_intent:
         return watch_intent
+
+    memory_intent = _route_memory(normalized, collapsed)
+    if memory_intent:
+        return memory_intent
 
     profile_intent = _route_named_profile(normalized, profile_names or set())
     if profile_intent:
@@ -144,3 +157,18 @@ def _route_watch(normalized: str, original: str) -> RoutedIntent | None:
         if term:
             return RoutedIntent(text_action="watch_add", text_argument=term)
     return RoutedIntent(fallback=FALLBACK_MESSAGE, fallback_reason="invalid")
+
+
+def _route_memory(normalized: str, original: str) -> RoutedIntent | None:
+    if normalized in {"memory list", "remember list", "what do you remember"}:
+        return RoutedIntent(text_action="memory_list")
+    if normalized in {"memory clear", "forget everything", "clear memory"}:
+        return RoutedIntent(text_action="memory_clear")
+    prefixes = ("remember ", "memory remember ")
+    for prefix in prefixes:
+        if normalized.startswith(prefix):
+            fact = original[len(prefix) :].strip()
+            if fact:
+                return RoutedIntent(text_action="memory_remember", text_argument=fact)
+            return RoutedIntent(fallback=FALLBACK_MESSAGE, fallback_reason="invalid")
+    return None

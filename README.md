@@ -110,6 +110,9 @@ Set `[discord.interactive].enabled = true` in local `config.toml`, set
 /search items
 /feeds list
 /summarize url
+/memory remember
+/memory list
+/memory clear
 ```
 
 Mention-based chat is also available in allowed channels:
@@ -140,3 +143,9 @@ Manage topic watch terms:
 briefing watch add "Fedora Linux"
 briefing watch list
 ```
+
+Conversational memory is opt-in. Set
+`[discord.interactive].conversation_memory_enabled = true` to keep bounded
+recent mention-chat context, and `remembered_facts_enabled = true` to enable
+explicit `/memory remember` facts. Retrieval from saved briefings/items is also
+off by default via `retrieval_context_enabled`.

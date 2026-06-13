@@ -15,7 +15,17 @@ from briefing.intent import HELP_MESSAGE, RoutedIntent, route_mention_text
 from briefing.llm.base import LlmProvider
 from briefing.llm.openai_compat import OpenAICompatProvider
 from briefing.llm.prompt import build_chat_system_prompt
-from briefing.memory import add_watch_text, list_watch_text, search_briefings_text, search_items_text
+from briefing.memory import (
+    add_watch_text,
+    clear_remembered_facts_text,
+    conversation_context_text,
+    list_remembered_facts_text,
+    list_watch_text,
+    remember_fact_text,
+    retrieval_context_text,
+    search_briefings_text,
+    search_items_text,
+)
 from briefing.sections.base import RunContext
 from briefing.db import Database
 
@@ -89,7 +99,11 @@ class BriefingDiscordBot(discord.Client):
                 and self.config.discord.interactive.mention_chat_enabled
             ):
                 async with message.channel.typing():
-                    text = await asyncio.to_thread(self._chat_for_interaction, mention_text)
+                    text = await asyncio.to_thread(
+                        self._chat_for_interaction,
+                        mention_text,
+                        identity,
+                    )
                 chunks = _split_plain_text_for_discord(text)
                 if chunks:
                     await message.reply(chunks[0], mention_author=False)
@@ -101,7 +115,7 @@ class BriefingDiscordBot(discord.Client):
 
         if routed.text_action:
             async with message.channel.typing():
-                text = await asyncio.to_thread(self._text_for_interaction, routed)
+                text = await asyncio.to_thread(self._text_for_interaction, routed, identity)
             for content in _split_text_for_discord(text):
                 await message.channel.send(content)
             return
@@ -220,6 +234,44 @@ class BriefingDiscordBot(discord.Client):
 
         self.tree.add_command(summarize_group)
 
+        memory_group = app_commands.Group(name="memory", description="Manage opt-in remembered facts")
+
+        @memory_group.command(name="remember", description="Remember an explicit fact")
+        async def memory_remember(interaction: discord.Interaction, fact: str) -> None:
+            await self._handle_text_command(
+                interaction,
+                lambda: remember_fact_text(
+                    self.config,
+                    Database(self.config.bot.database_path),
+                    user_id=interaction.user.id,
+                    fact=fact,
+                ),
+            )
+
+        @memory_group.command(name="list", description="List remembered facts")
+        async def memory_list(interaction: discord.Interaction) -> None:
+            await self._handle_text_command(
+                interaction,
+                lambda: list_remembered_facts_text(
+                    self.config,
+                    Database(self.config.bot.database_path),
+                    user_id=interaction.user.id,
+                ),
+            )
+
+        @memory_group.command(name="clear", description="Clear remembered facts")
+        async def memory_clear(interaction: discord.Interaction) -> None:
+            await self._handle_text_command(
+                interaction,
+                lambda: clear_remembered_facts_text(
+                    self.config,
+                    Database(self.config.bot.database_path),
+                    user_id=interaction.user.id,
+                ),
+            )
+
+        self.tree.add_command(memory_group)
+
     async def _handle_briefing(
         self,
         interaction: discord.Interaction,
@@ -272,7 +324,7 @@ class BriefingDiscordBot(discord.Client):
         context = RunContext(config=self.config, profile_name=profile, format_name="discord")
         return render_sections(section_names, context)
 
-    def _text_for_interaction(self, routed: RoutedIntent) -> str:
+    def _text_for_interaction(self, routed: RoutedIntent, identity: InteractionIdentity) -> str:
         database = Database(self.config.bot.database_path)
         try:
             if routed.text_action == "watch_add":
@@ -283,19 +335,47 @@ class BriefingDiscordBot(discord.Client):
                 return search_briefings_text(database, routed.text_argument or "", limit=5)
             if routed.text_action == "search_items":
                 return search_items_text(database, routed.text_argument or "", limit=5)
+            if routed.text_action == "memory_remember":
+                return remember_fact_text(
+                    self.config,
+                    database,
+                    user_id=identity.user_id,
+                    fact=routed.text_argument or "",
+                )
+            if routed.text_action == "memory_list":
+                return list_remembered_facts_text(self.config, database, user_id=identity.user_id)
+            if routed.text_action == "memory_clear":
+                return clear_remembered_facts_text(self.config, database, user_id=identity.user_id)
         except Exception as exc:
             LOG.warning("Discord mention text command failed: %s", exc)
             return f"Command failed: {exc}"
         return "Command failed: unknown mention action."
 
-    def _chat_for_interaction(self, text: str) -> str:
+    def _chat_for_interaction(self, text: str, identity: InteractionIdentity | None = None) -> str:
         if not self.config.llm.enabled:
             return CHAT_UNAVAILABLE_MESSAGE
+        database = Database(self.config.bot.database_path)
         try:
             context = RunContext(config=self.config, format_name="discord")
+            memory_context = ""
+            if identity:
+                memory_context = "\n\n".join(
+                    part
+                    for part in [
+                        conversation_context_text(
+                            self.config,
+                            database,
+                            guild_id=identity.guild_id,
+                            channel_id=identity.channel_id or 0,
+                            user_id=identity.user_id,
+                        ),
+                        retrieval_context_text(self.config, database, text),
+                    ]
+                    if part
+                )
             provider = self._build_llm_provider()
             response = provider.chat(
-                system_prompt=build_chat_system_prompt(context),
+                system_prompt=build_chat_system_prompt(context, memory_context=memory_context),
                 message=text,
                 max_tokens=self.config.discord.interactive.mention_chat_max_tokens,
                 temperature=self.config.discord.interactive.mention_chat_temperature,
@@ -305,6 +385,21 @@ class BriefingDiscordBot(discord.Client):
             return CHAT_UNAVAILABLE_MESSAGE
         if not response:
             return CHAT_UNAVAILABLE_MESSAGE
+        if identity and self.config.discord.interactive.conversation_memory_enabled:
+            database.add_conversation_message(
+                guild_id=identity.guild_id,
+                channel_id=identity.channel_id or 0,
+                user_id=identity.user_id,
+                role="user",
+                content=text,
+            )
+            database.add_conversation_message(
+                guild_id=identity.guild_id,
+                channel_id=identity.channel_id or 0,
+                user_id=identity.user_id,
+                role="assistant",
+                content=response,
+            )
         return response
 
     def _build_llm_provider(self) -> LlmProvider:

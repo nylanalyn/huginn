@@ -47,6 +47,14 @@ class DiscordInteractiveConfig(WarnUnknownModel):
     mention_chat_enabled: bool = False
     mention_chat_max_tokens: int = 500
     mention_chat_temperature: float = 0.7
+    conversation_memory_enabled: bool = False
+    conversation_memory_max_messages: int = 8
+    conversation_memory_max_tokens: int = 1000
+    conversation_memory_max_age_minutes: int = 60
+    remembered_facts_enabled: bool = False
+    remembered_facts_max_items: int = 20
+    retrieval_context_enabled: bool = False
+    retrieval_context_limit: int = 3
 
 
 class DiscordConfig(WarnUnknownModel):

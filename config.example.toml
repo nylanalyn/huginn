@@ -14,6 +14,14 @@ allowed_user_ids = []
 mention_chat_enabled = false
 mention_chat_max_tokens = 500
 mention_chat_temperature = 0.7
+conversation_memory_enabled = false
+conversation_memory_max_messages = 8
+conversation_memory_max_tokens = 1000
+conversation_memory_max_age_minutes = 60
+remembered_facts_enabled = false
+remembered_facts_max_items = 20
+retrieval_context_enabled = false
+retrieval_context_limit = 3
 
 [llm]
 enabled = true

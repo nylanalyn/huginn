@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from briefing.config import load_config
+from briefing.db import Database
 from briefing.discord_bot import (
     CHAT_UNAVAILABLE_MESSAGE,
     BriefingDiscordBot,
@@ -118,3 +119,45 @@ def test_mention_chat_disabled_llm_returns_fallback(tmp_path: Path) -> None:
     bot = StubbedDiscordBot(config, FakeChatProvider())
 
     assert bot._chat_for_interaction("say hello") == CHAT_UNAVAILABLE_MESSAGE
+
+
+def test_mention_chat_includes_and_records_opt_in_memory(tmp_path: Path) -> None:
+    db_path = tmp_path / "briefing.sqlite3"
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        f"""
+        [bot]
+        database_path = "{db_path}"
+
+        [discord.interactive]
+        enabled = true
+        mention_chat_enabled = true
+        conversation_memory_enabled = true
+        remembered_facts_enabled = true
+
+        [llm]
+        enabled = true
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(config_path)
+    database = Database(db_path)
+    database.add_remembered_fact(user_id=3, fact="likes concise answers")
+    provider = FakeChatProvider()
+    bot = StubbedDiscordBot(config, provider)
+
+    response = bot._chat_for_interaction(
+        "say hello",
+        InteractionIdentity(guild_id=1, channel_id=2, user_id=3),
+    )
+
+    assert response == "persona reply"
+    assert "likes concise answers" in provider.calls[0]["system_prompt"]
+    rows = database.recent_conversation_messages(
+        guild_id=1,
+        channel_id=2,
+        user_id=3,
+        since_iso="1970-01-01T00:00:00+00:00",
+        limit=10,
+    )
+    assert [row["role"] for row in rows] == ["user", "assistant"]

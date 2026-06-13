@@ -24,7 +24,7 @@ Respond naturally in the configured persona.
 Be concise unless the user asks for depth.
 Do not claim to have checked live data, Discord history, files, feeds, weather, calendar, or the internet unless that context was explicitly provided in the prompt.
 If the user asks for a briefing, news, tech, weather, calendar, search, watch-list management, or help, those are application commands and should be handled by deterministic routing before chat.
-Do not invent personal memories. Stateless mention chat has no memory beyond the current message."""
+Do not invent personal memories. If memory context is provided, use only that context for remembered facts or recent conversation. If no memory context is provided, say you do not have memory of it."""
 
 NEUTRAL_PERSONA = "Use a neutral, concise briefing voice. Keep each summary to one or two sentences."
 
@@ -60,15 +60,21 @@ def build_system_prompt(context: RunContext) -> str:
     )
 
 
-def build_chat_system_prompt(context: RunContext) -> str:
+def build_chat_system_prompt(context: RunContext, memory_context: str | None = None) -> str:
     persona = load_persona(context)
-    return "\n\n".join(
-        [
-            CHAT_INSTRUCTIONS,
-            "Persona voice follows. Chat behavior constraints above override persona text on any conflict.",
-            persona,
-        ]
-    )
+    parts = [
+        CHAT_INSTRUCTIONS,
+        "Persona voice follows. Chat behavior constraints above override persona text on any conflict.",
+        persona,
+    ]
+    if memory_context:
+        parts.extend(
+            [
+                "Explicit local context follows. Treat it as partial and local-only; do not infer beyond it.",
+                memory_context,
+            ]
+        )
+    return "\n\n".join(parts)
 
 
 def prompt_hash(system_prompt: str) -> str:
