@@ -11,7 +11,9 @@ from briefing.config import AppConfig
 from briefing.core import render_sections
 from briefing.discord_webhook import split_sections_for_discord
 from briefing.intent import route_mention_text
+from briefing.memory import add_watch_text, list_watch_text, search_briefings_text, search_items_text
 from briefing.sections.base import RunContext
+from briefing.db import Database
 
 LOG = logging.getLogger(__name__)
 
@@ -117,6 +119,42 @@ class BriefingDiscordBot(discord.Client):
 
         self.tree.add_command(calendar_group)
 
+        watch_group = app_commands.Group(name="watch", description="Manage topic watch terms")
+
+        @watch_group.command(name="add", description="Add a topic watch term")
+        async def watch_add(interaction: discord.Interaction, term: str) -> None:
+            await self._handle_text_command(
+                interaction,
+                lambda: add_watch_text(Database(self.config.bot.database_path), term),
+            )
+
+        @watch_group.command(name="list", description="List topic watch terms")
+        async def watch_list(interaction: discord.Interaction) -> None:
+            await self._handle_text_command(
+                interaction,
+                lambda: list_watch_text(Database(self.config.bot.database_path)),
+            )
+
+        self.tree.add_command(watch_group)
+
+        search_group = app_commands.Group(name="search", description="Search saved briefing data")
+
+        @search_group.command(name="briefings", description="Search past briefings")
+        async def search_briefings(interaction: discord.Interaction, query: str) -> None:
+            await self._handle_text_command(
+                interaction,
+                lambda: search_briefings_text(Database(self.config.bot.database_path), query, limit=5),
+            )
+
+        @search_group.command(name="items", description="Search seen RSS items")
+        async def search_items(interaction: discord.Interaction, query: str) -> None:
+            await self._handle_text_command(
+                interaction,
+                lambda: search_items_text(Database(self.config.bot.database_path), query, limit=5),
+            )
+
+        self.tree.add_command(search_group)
+
     async def _handle_briefing(
         self,
         interaction: discord.Interaction,
@@ -134,6 +172,20 @@ class BriefingDiscordBot(discord.Client):
         if not messages:
             messages = ["(empty briefing)"]
         for message in messages:
+            await interaction.followup.send(message)
+
+    async def _handle_text_command(self, interaction: discord.Interaction, callback) -> None:
+        await interaction.response.defer(thinking=True)
+        if not interaction_allowed(self.config, _identity_from_interaction(interaction)):
+            await interaction.followup.send("This bot is not enabled for this Discord context.")
+            return
+        try:
+            text = await asyncio.to_thread(callback)
+        except Exception as exc:
+            LOG.warning("Discord text command failed: %s", exc)
+            await interaction.followup.send(f"Command failed: {exc}")
+            return
+        for message in _split_text_for_discord(text):
             await interaction.followup.send(message)
 
     def _render_for_interaction(
@@ -160,6 +212,12 @@ def _identity_from_interaction(interaction: discord.Interaction) -> InteractionI
 
 def _strip_bot_mentions(content: str, display_name: str) -> str:
     return content.replace("@" + display_name, "").strip()
+
+
+def _split_text_for_discord(text: str) -> list[str]:
+    from briefing.sections.base import RenderedSection
+
+    return split_sections_for_discord([RenderedSection(title="Result", lines=text.splitlines())])
 
 
 async def run_discord_bot(config: AppConfig, token: str) -> None:

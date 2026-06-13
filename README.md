@@ -104,6 +104,10 @@ Set `[discord.interactive].enabled = true` in local `config.toml`, set
 /briefing tech
 /weather
 /calendar today
+/watch add
+/watch list
+/search briefings
+/search items
 ```
 
 Mention-based chat is also available in allowed channels:
@@ -118,3 +122,19 @@ Mention-based chat is also available in allowed channels:
 
 For mention handling, enable the Message Content Intent for the bot in the
 Discord developer portal.
+
+## Memory And Search
+
+Search saved local data:
+
+```bash
+briefing search briefings "Fedora"
+briefing search items "Fedora"
+```
+
+Manage topic watch terms:
+
+```bash
+briefing watch add "Fedora Linux"
+briefing watch list
+```

@@ -56,7 +56,8 @@ class LlmConfig(WarnUnknownModel):
     base_url: str = "http://localhost:11434/v1"
     model: str = "llama3.1:8b"
     temperature: float = 0.2
-    timeout_seconds: int = 60
+    timeout_seconds: int = 600
+    max_tokens: int = 700
     persona_path: str = "personas/default.md"
 
 

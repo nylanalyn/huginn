@@ -16,16 +16,18 @@ class OpenAICompatProvider:
         if not items:
             return SummaryResult(lede="", summaries={})
 
+        payload = {
+            "model": self.config.model,
+            "temperature": self.config.temperature,
+            "max_tokens": self.config.max_tokens,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": build_summary_user_message(items)},
+            ],
+        }
         response = httpx.post(
             self.config.base_url.rstrip("/") + "/chat/completions",
-            json={
-                "model": self.config.model,
-                "temperature": self.config.temperature,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": build_summary_user_message(items)},
-                ],
-            },
+            json=payload,
             timeout=self.config.timeout_seconds,
         )
         response.raise_for_status()

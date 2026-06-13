@@ -51,3 +51,38 @@ def test_bot_command_requires_interactive_enabled(tmp_path: Path) -> None:
     )
 
     assert main(["--config", str(config_path), "bot"]) == 2
+
+
+def test_watch_cli_add_and_list(tmp_path: Path, capsys) -> None:
+    db_path = tmp_path / "briefing.sqlite3"
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        f"""
+        [bot]
+        database_path = "{db_path}"
+        """,
+        encoding="utf-8",
+    )
+
+    assert main(["--config", str(config_path), "watch", "add", "Fedora"]) == 0
+    assert main(["--config", str(config_path), "watch", "list"]) == 0
+
+    output = capsys.readouterr().out
+    assert "Added watch term: Fedora" in output
+    assert "* Fedora" in output
+
+
+def test_search_cli_items(tmp_path: Path, capsys) -> None:
+    db_path = tmp_path / "briefing.sqlite3"
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        f"""
+        [bot]
+        database_path = "{db_path}"
+        """,
+        encoding="utf-8",
+    )
+
+    assert main(["--config", str(config_path), "search", "items", "Fedora"]) == 0
+
+    assert "No items found for: Fedora" in capsys.readouterr().out

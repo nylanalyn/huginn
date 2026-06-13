@@ -19,6 +19,7 @@ from briefing.core import render_sections
 from briefing.db import Database
 from briefing.discord_bot import run_discord_bot
 from briefing.discord_webhook import DiscordWebhookError, DiscordWebhookSender
+from briefing.memory import add_watch_text, list_watch_text, search_briefings_text, search_items_text
 from briefing.render.discord import render_discord_preview
 from briefing.render.text import render_briefing
 from briefing.sections.base import RunContext
@@ -82,6 +83,25 @@ def build_parser() -> argparse.ArgumentParser:
 
     bot_parser = subparsers.add_parser("bot", help="Run the interactive Discord bot")
     bot_parser.set_defaults(func=bot_command)
+
+    search_parser = subparsers.add_parser("search", help="Search saved briefing data")
+    search_subparsers = search_parser.add_subparsers(dest="search_command", required=True)
+    search_briefings = search_subparsers.add_parser("briefings", help="Search past briefings")
+    search_briefings.add_argument("query")
+    search_briefings.add_argument("--limit", type=int, default=10)
+    search_briefings.set_defaults(func=search_command)
+    search_items = search_subparsers.add_parser("items", help="Search seen RSS items")
+    search_items.add_argument("query")
+    search_items.add_argument("--limit", type=int, default=10)
+    search_items.set_defaults(func=search_command)
+
+    watch_parser = subparsers.add_parser("watch", help="Manage topic watch terms")
+    watch_subparsers = watch_parser.add_subparsers(dest="watch_command", required=True)
+    watch_add = watch_subparsers.add_parser("add", help="Add a watch term")
+    watch_add.add_argument("term")
+    watch_add.set_defaults(func=watch_command)
+    watch_list = watch_subparsers.add_parser("list", help="List watch terms")
+    watch_list.set_defaults(func=watch_command)
 
     return parser
 
@@ -195,4 +215,31 @@ def bot_command(args: argparse.Namespace) -> int:
             f"Discord bot token environment variable {config.discord.interactive.token_env} is not set"
         )
     asyncio.run(run_discord_bot(config, token))
+    return 0
+
+
+def search_command(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    database = Database(config.bot.database_path)
+    if args.search_command == "briefings":
+        print(search_briefings_text(database, args.query, limit=args.limit))
+    elif args.search_command == "items":
+        print(search_items_text(database, args.query, limit=args.limit))
+    else:
+        raise ConfigError(f"Unknown search command: {args.search_command}")
+    return 0
+
+
+def watch_command(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    database = Database(config.bot.database_path)
+    if args.watch_command == "add":
+        try:
+            print(add_watch_text(database, args.term))
+        except ValueError as exc:
+            raise ConfigError(str(exc)) from exc
+    elif args.watch_command == "list":
+        print(list_watch_text(database))
+    else:
+        raise ConfigError(f"Unknown watch command: {args.watch_command}")
     return 0

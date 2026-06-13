@@ -53,6 +53,12 @@ CREATE TABLE IF NOT EXISTS feed_state (
   last_fetched  TEXT,
   last_status   INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS watch_terms (
+  id            INTEGER PRIMARY KEY,
+  term          TEXT UNIQUE NOT NULL,
+  created_at    TEXT NOT NULL
+);
 """
 
 
@@ -258,6 +264,70 @@ class Database:
                     """
                 ).fetchall()
         return [dict(row) for row in rows]
+
+    def search_briefings(self, query: str, *, limit: int = 10) -> list[dict[str, str | int | None]]:
+        self.init()
+        pattern = f"%{query}%"
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, profile, sections, created_at, sent, body
+                FROM briefings
+                WHERE body LIKE ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (pattern, limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def search_items(self, query: str, *, limit: int = 10) -> list[dict[str, str | int | None]]:
+        self.init()
+        pattern = f"%{query}%"
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, title, source, url, published_at, fetched_at
+                FROM items
+                WHERE title LIKE ? OR url LIKE ? OR source LIKE ?
+                ORDER BY published_at DESC
+                LIMIT ?
+                """,
+                (pattern, pattern, pattern, limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def add_watch_term(self, term: str) -> bool:
+        self.init()
+        normalized = normalize_watch_term(term)
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """
+                INSERT OR IGNORE INTO watch_terms (term, created_at)
+                VALUES (?, ?)
+                """,
+                (normalized, utc_now_iso()),
+            )
+            return cursor.rowcount > 0
+
+    def list_watch_terms(self) -> list[dict[str, str | int]]:
+        self.init()
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, term, created_at
+                FROM watch_terms
+                ORDER BY term
+                """
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def normalize_watch_term(term: str) -> str:
+    normalized = " ".join(term.strip().split())
+    if not normalized:
+        raise ValueError("watch term must not be empty")
+    return normalized
 
 
 def _stored_item_from_row(row: sqlite3.Row) -> StoredItem:
