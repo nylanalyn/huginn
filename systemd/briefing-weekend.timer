@@ -1,11 +1,11 @@
 [Unit]
-Description=Run weekend morning briefing
+Description=Run AI morning briefing on Wednesdays at 06:00
 
 [Timer]
-Unit=briefing@weekend.service
-OnCalendar=Sat,Sun 09:00
+Unit=briefing@ai.service
+OnCalendar=Wed *-*-* 06:00:00
 Persistent=true
-RandomizedDelaySec=120
+RandomizedDelaySec=60
 
 [Install]
 WantedBy=timers.target

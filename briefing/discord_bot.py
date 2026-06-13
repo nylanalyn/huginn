@@ -9,13 +9,17 @@ from discord import app_commands
 
 from briefing.config import AppConfig
 from briefing.core import render_sections
-from briefing.discord_webhook import split_sections_for_discord
-from briefing.intent import route_mention_text
+from briefing.discord_webhook import DISCORD_CONTENT_LIMIT, split_sections_for_discord
+from briefing.intent import HELP_MESSAGE, RoutedIntent, route_mention_text
+from briefing.llm.base import LlmProvider
+from briefing.llm.openai_compat import OpenAICompatProvider
+from briefing.llm.prompt import build_chat_system_prompt
 from briefing.memory import add_watch_text, list_watch_text, search_briefings_text, search_items_text
 from briefing.sections.base import RunContext
 from briefing.db import Database
 
 LOG = logging.getLogger(__name__)
+CHAT_UNAVAILABLE_MESSAGE = "Mention chat is unavailable right now."
 
 
 @dataclass(frozen=True)
@@ -73,9 +77,32 @@ class BriefingDiscordBot(discord.Client):
             return
 
         mention_text = _strip_bot_mentions(message.clean_content, self.user.display_name)
-        routed = route_mention_text(mention_text)
+        routed = route_mention_text(
+            mention_text,
+            profile_names=set(self.config.profiles),
+            section_names=set(self.config.sections),
+        )
         if routed.fallback:
+            if (
+                routed.fallback_reason == "unknown"
+                and self.config.discord.interactive.mention_chat_enabled
+            ):
+                async with message.channel.typing():
+                    text = await asyncio.to_thread(self._chat_for_interaction, mention_text)
+                chunks = _split_plain_text_for_discord(text)
+                if chunks:
+                    await message.reply(chunks[0], mention_author=False)
+                    for content in chunks[1:]:
+                        await message.channel.send(content)
+                return
             await message.reply(routed.fallback, mention_author=False)
+            return
+
+        if routed.text_action:
+            async with message.channel.typing():
+                text = await asyncio.to_thread(self._text_for_interaction, routed)
+            for content in _split_text_for_discord(text):
+                await message.channel.send(content)
             return
 
         async with message.channel.typing():
@@ -105,7 +132,28 @@ class BriefingDiscordBot(discord.Client):
         async def briefing_tech(interaction: discord.Interaction) -> None:
             await self._handle_briefing(interaction, sections=["tech"])
 
+        @briefing_group.command(name="profile", description="Generate a named briefing profile")
+        async def briefing_profile(interaction: discord.Interaction, profile: str) -> None:
+            await self._handle_briefing(interaction, profile=profile)
+
+        @briefing_profile.autocomplete("profile")
+        async def briefing_profile_autocomplete(
+            interaction: discord.Interaction,
+            current: str,
+        ) -> list[app_commands.Choice[str]]:
+            del interaction
+            needle = current.casefold()
+            return [
+                app_commands.Choice(name=name, value=name)
+                for name in sorted(self.config.profiles)
+                if not needle or needle in name.casefold()
+            ][:25]
+
         self.tree.add_command(briefing_group)
+
+        @self.tree.command(name="help", description="Show Huginn commands")
+        async def help_command(interaction: discord.Interaction) -> None:
+            await self._handle_text_command(interaction, lambda: HELP_MESSAGE)
 
         @self.tree.command(name="weather", description="Show the weather")
         async def weather(interaction: discord.Interaction) -> None:
@@ -166,6 +214,12 @@ class BriefingDiscordBot(discord.Client):
         if not interaction_allowed(self.config, _identity_from_interaction(interaction)):
             await interaction.followup.send("This bot is not enabled for this Discord context.")
             return
+        if profile and profile not in self.config.profiles:
+            available = ", ".join(sorted(self.config.profiles)) or "(none)"
+            await interaction.followup.send(
+                f"Unknown briefing profile '{profile}'. Available profiles: {available}"
+            )
+            return
 
         rendered = await asyncio.to_thread(self._render_for_interaction, profile, sections)
         messages = split_sections_for_discord(rendered)
@@ -201,6 +255,44 @@ class BriefingDiscordBot(discord.Client):
         context = RunContext(config=self.config, profile_name=profile, format_name="discord")
         return render_sections(section_names, context)
 
+    def _text_for_interaction(self, routed: RoutedIntent) -> str:
+        database = Database(self.config.bot.database_path)
+        try:
+            if routed.text_action == "watch_add":
+                return add_watch_text(database, routed.text_argument or "")
+            if routed.text_action == "watch_list":
+                return list_watch_text(database)
+            if routed.text_action == "search_briefings":
+                return search_briefings_text(database, routed.text_argument or "", limit=5)
+            if routed.text_action == "search_items":
+                return search_items_text(database, routed.text_argument or "", limit=5)
+        except Exception as exc:
+            LOG.warning("Discord mention text command failed: %s", exc)
+            return f"Command failed: {exc}"
+        return "Command failed: unknown mention action."
+
+    def _chat_for_interaction(self, text: str) -> str:
+        if not self.config.llm.enabled:
+            return CHAT_UNAVAILABLE_MESSAGE
+        try:
+            context = RunContext(config=self.config, format_name="discord")
+            provider = self._build_llm_provider()
+            response = provider.chat(
+                system_prompt=build_chat_system_prompt(context),
+                message=text,
+                max_tokens=self.config.discord.interactive.mention_chat_max_tokens,
+                temperature=self.config.discord.interactive.mention_chat_temperature,
+            ).strip()
+        except Exception as exc:
+            LOG.warning("Discord mention chat failed: %s", exc)
+            return CHAT_UNAVAILABLE_MESSAGE
+        if not response:
+            return CHAT_UNAVAILABLE_MESSAGE
+        return response
+
+    def _build_llm_provider(self) -> LlmProvider:
+        return OpenAICompatProvider(self.config.llm)
+
 
 def _identity_from_interaction(interaction: discord.Interaction) -> InteractionIdentity:
     return InteractionIdentity(
@@ -218,6 +310,31 @@ def _split_text_for_discord(text: str) -> list[str]:
     from briefing.sections.base import RenderedSection
 
     return split_sections_for_discord([RenderedSection(title="Result", lines=text.splitlines())])
+
+
+def _split_plain_text_for_discord(text: str) -> list[str]:
+    if len(text) <= DISCORD_CONTENT_LIMIT:
+        return [text] if text else []
+    chunks: list[str] = []
+    current = ""
+    for line in text.splitlines() or [text]:
+        pending = line
+        while pending:
+            separator_len = 1 if current else 0
+            remaining = DISCORD_CONTENT_LIMIT - len(current) - separator_len
+            if remaining <= 0:
+                chunks.append(current)
+                current = ""
+                continue
+            piece = pending[:remaining]
+            current = piece if not current else f"{current}\n{piece}"
+            pending = pending[remaining:]
+            if pending:
+                chunks.append(current)
+                current = ""
+    if current:
+        chunks.append(current)
+    return chunks
 
 
 async def run_discord_bot(config: AppConfig, token: str) -> None:

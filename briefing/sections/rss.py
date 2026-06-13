@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import logging
+import re
 from calendar import timegm
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
+from html.parser import HTMLParser
 from typing import Any
+from urllib.parse import urljoin
 
 import feedparser
 import httpx
@@ -67,6 +70,18 @@ class RssSection:
             if item.published_at > cutoff and not database.item_was_used(item.id):
                 selected.append(item)
         selected.sort(key=lambda item: (item.feed_priority, item.published_at), reverse=True)
+        if self.section_config.max_items_per_feed:
+            capped: list[RssItem] = []
+            feed_counts: dict[str, int] = {}
+            for item in selected:
+                feed_count = feed_counts.get(item.feed_key, 0)
+                if feed_count >= self.section_config.max_items_per_feed:
+                    continue
+                capped.append(item)
+                feed_counts[item.feed_key] = feed_count + 1
+                if len(capped) >= max_items:
+                    break
+            return capped
         return selected[:max_items]
 
     def render(self, items: list[RssItem], context: RunContext) -> RenderedSection:
@@ -187,6 +202,11 @@ class RssSection:
             LOG.warning("Feed %s returned HTTP %s", feed_key, response.status_code)
             return []
 
+        if _response_looks_like_noaa_alerts(response, feed_config):
+            return self._normalize_noaa_alerts(feed_key, feed_config, response, database, fetched_at=utc_now())
+        if feed_config.type == "html_links":
+            return self._normalize_html_links(feed_key, feed_config, response.text, database, fetched_at=utc_now())
+
         parsed = feedparser.parse(response.content)
         if getattr(parsed, "bozo", False):
             LOG.warning("Feed %s parsed with warnings: %s", feed_key, parsed.get("bozo_exception"))
@@ -208,6 +228,134 @@ class RssSection:
                 items.append(_with_stored_id(normalized, stored))
         return items
 
+    def _normalize_html_links(
+        self,
+        feed_key: str,
+        feed_config: FeedConfig,
+        html: str,
+        database: Database,
+        fetched_at: datetime,
+    ) -> list[RssItem]:
+        base_url = feed_config.base_url or feed_config.url
+        link_pattern = re.compile(feed_config.link_pattern or r".+")
+        parser = _LinkParser()
+        parser.feed(html)
+        items: list[RssItem] = []
+        seen_urls: set[str] = set()
+        for href, text in parser.links:
+            absolute_url = urljoin(base_url, href)
+            path = href if href.startswith("/") else absolute_url
+            if absolute_url in seen_urls or not link_pattern.search(path):
+                continue
+            seen_urls.add(absolute_url)
+            title = text.strip() or absolute_url
+            if not _entry_matches_filters(
+                title=title,
+                summary="",
+                include_keywords=feed_config.filter_include_keywords,
+                exclude_keywords=feed_config.filter_exclude_keywords,
+            ):
+                continue
+            dedup_hash = dedup_hash_for_entry(feed_key=feed_key, guid=absolute_url, url=absolute_url)
+            normalized = RssItem(
+                id=0,
+                title=title,
+                body="",
+                source=feed_config.name,
+                url=absolute_url,
+                guid=absolute_url,
+                dedup_hash=dedup_hash,
+                feed_key=feed_key,
+                feed_priority=feed_config.priority,
+                published_at=fetched_at,
+            )
+            stored = database.insert_or_get_item(
+                dedup_hash=normalized.dedup_hash,
+                url=normalized.url or "",
+                guid=normalized.guid,
+                title=normalized.title,
+                source=feed_key,
+                published_at=to_utc_iso(normalized.published_at),
+                fetched_at=to_utc_iso(fetched_at),
+            )
+            items.append(_with_stored_id(normalized, stored))
+        return items
+
+    def _normalize_noaa_alerts(
+        self,
+        feed_key: str,
+        feed_config: FeedConfig,
+        response: httpx.Response,
+        database: Database,
+        *,
+        fetched_at: datetime,
+    ) -> list[RssItem]:
+        try:
+            features = response.json().get("features", [])
+        except ValueError as exc:
+            LOG.warning("Feed %s returned invalid NOAA alert JSON: %s", feed_key, exc)
+            return []
+
+        items: list[RssItem] = []
+        for feature in features:
+            properties = feature.get("properties") or {}
+            title = str(
+                properties.get("headline")
+                or properties.get("event")
+                or "NOAA weather alert"
+            ).strip()
+            area = str(properties.get("areaDesc") or "").strip()
+            summary = "\n".join(
+                part
+                for part in [
+                    area,
+                    str(properties.get("description") or "").strip(),
+                    str(properties.get("instruction") or "").strip(),
+                ]
+                if part
+            )
+            if not title:
+                continue
+            if feed_config.filter_area_keywords and not _matches_any_keyword(
+                area,
+                feed_config.filter_area_keywords,
+            ):
+                continue
+            if not _entry_matches_filters(
+                title=title,
+                summary=summary,
+                include_keywords=feed_config.filter_include_keywords,
+                exclude_keywords=feed_config.filter_exclude_keywords,
+            ):
+                continue
+            url = str(properties.get("@id") or properties.get("id") or feature.get("id") or "").strip()
+            guid = str(properties.get("id") or feature.get("id") or url or title).strip()
+            published_at = _datetime_from_noaa_properties(properties, fetched_at)
+            dedup_hash = dedup_hash_for_entry(feed_key=feed_key, guid=guid, url=url or guid)
+            normalized = RssItem(
+                id=0,
+                title=title,
+                body=summary[:SUMMARY_LIMIT],
+                source=feed_config.name,
+                url=url,
+                guid=guid,
+                dedup_hash=dedup_hash,
+                feed_key=feed_key,
+                feed_priority=feed_config.priority,
+                published_at=published_at,
+            )
+            stored = database.insert_or_get_item(
+                dedup_hash=normalized.dedup_hash,
+                url=normalized.url or "",
+                guid=normalized.guid,
+                title=normalized.title,
+                source=feed_key,
+                published_at=to_utc_iso(normalized.published_at),
+                fetched_at=to_utc_iso(fetched_at),
+            )
+            items.append(_with_stored_id(normalized, stored))
+        return items
+
     def _normalize_entry(
         self,
         feed_key: str,
@@ -223,6 +371,13 @@ class RssSection:
         guid = _entry_guid(entry)
         published_at = _entry_datetime(entry, fetched_at)
         summary = _entry_summary(entry)
+        if not _entry_matches_filters(
+            title=title,
+            summary=summary,
+            include_keywords=feed_config.filter_include_keywords,
+            exclude_keywords=feed_config.filter_exclude_keywords,
+        ):
+            return None
         dedup_hash = dedup_hash_for_entry(feed_key=feed_key, guid=guid, url=url)
         return RssItem(
             id=0,
@@ -283,6 +438,47 @@ def _entry_summary(entry: Any) -> str:
     return ""
 
 
+def _entry_matches_filters(
+    *,
+    title: str,
+    summary: str,
+    include_keywords: list[str],
+    exclude_keywords: list[str],
+) -> bool:
+    haystack = f"{title}\n{summary}".casefold()
+    if include_keywords and not any(keyword.casefold() in haystack for keyword in include_keywords):
+        return False
+    if exclude_keywords and any(keyword.casefold() in haystack for keyword in exclude_keywords):
+        return False
+    return True
+
+
+def _matches_any_keyword(text: str, keywords: list[str]) -> bool:
+    haystack = text.casefold()
+    return any(keyword.casefold() in haystack for keyword in keywords)
+
+
+def _response_looks_like_noaa_alerts(response: httpx.Response, feed_config: FeedConfig) -> bool:
+    if feed_config.type == "noaa_alerts":
+        return True
+    content_type = response.headers.get("Content-Type", "")
+    return "api.weather.gov/alerts" in feed_config.url and "json" in content_type
+
+
+def _datetime_from_noaa_properties(properties: dict[str, Any], fallback: datetime) -> datetime:
+    for key in ("effective", "sent", "onset"):
+        value = properties.get(key)
+        if value:
+            try:
+                parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=UTC)
+            return parsed.astimezone(UTC)
+    return fallback
+
+
 def _entry_datetime(entry: Any, fallback: datetime) -> datetime:
     parsed = entry.get("published_parsed") or entry.get("updated_parsed")
     if parsed:
@@ -299,3 +495,31 @@ def _entry_datetime(entry: Any, fallback: datetime) -> datetime:
             LOG.warning("Could not parse feed timestamp: %r", raw)
 
     return fallback
+
+
+class _LinkParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.links: list[tuple[str, str]] = []
+        self._href_stack: list[str] = []
+        self._text_parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag != "a":
+            return
+        href = dict(attrs).get("href")
+        if href:
+            self._href_stack.append(href)
+            self._text_parts = []
+
+    def handle_data(self, data: str) -> None:
+        if self._href_stack:
+            self._text_parts.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag != "a" or not self._href_stack:
+            return
+        href = self._href_stack.pop()
+        text = " ".join("".join(self._text_parts).split())
+        self.links.append((href, text))
+        self._text_parts = []

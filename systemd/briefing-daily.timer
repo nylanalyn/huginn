@@ -1,11 +1,11 @@
 [Unit]
-Description=Run daily morning briefing on weekdays
+Description=Run daily general morning briefing at 05:30
 
 [Timer]
 Unit=briefing@daily.service
-OnCalendar=Mon..Fri 07:00
+OnCalendar=*-*-* 05:30:00
 Persistent=true
-RandomizedDelaySec=120
+RandomizedDelaySec=60
 
 [Install]
 WantedBy=timers.target

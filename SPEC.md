@@ -2,7 +2,7 @@
 
 ## Project Summary
 
-Build a lightweight, local-first Discord bot whose first feature is scheduled morning briefings. Briefings are assembled by deterministic code — weather, calendar, RSS fetching, filtering, deduplication, scheduling, and Discord delivery are all plain Python. A local LLM is optionally used for exactly one job: writing summary prose for news items the code hands it, in a configurable voice defined by a persona file (SOUL.md-style).
+Build a lightweight, local-first Discord bot whose first feature is scheduled morning briefings. Briefings are assembled by deterministic code — weather, calendar, RSS fetching, filtering, deduplication, scheduling, and Discord delivery are all plain Python. A local LLM is optionally used for bounded language tasks: writing summary prose for news items the code hands it, and later answering direct Discord mentions in a configurable persona (SOUL.md-style).
 
 The long-term shape is a small personal bot the owner fully controls, where briefings are the first section type and future features (email checks, watch lists, interactive commands) are added as new sections and commands on the same core. The scheduled webhook briefing ships first; the persistent interactive bot comes later but is the eventual main body.
 
@@ -22,6 +22,7 @@ The long-term shape is a small personal bot the owner fully controls, where brie
 
 * No general autonomous agent.
 * No LLM involvement in weather or calendar data.
+* No autonomous Discord actions: the chat feature answers direct user messages only.
 * No OpenClaw dependency.
 * No headless browser.
 * No hallucinated news: RSS/feed data is the sole source of truth, enforced structurally (see LLM Behavior).
@@ -113,6 +114,9 @@ token_env = "DISCORD_BOT_TOKEN"
 allowed_guild_ids = [123456789]
 allowed_channel_ids = [987654321]
 allowed_user_ids = []     # empty = anyone in the allowed guild/channels
+mention_chat_enabled = false
+mention_chat_max_tokens = 500
+mention_chat_temperature = 0.7
 
 [llm]
 enabled = true
@@ -202,7 +206,7 @@ Rules:
 
 * `persona_path` in `[llm]` sets the default persona; a profile may override it with its own `persona_path` (the Friday briefing can have a different personality than the Monday one).
 * The persona controls **voice only** — tone, word choice, attitude, sign-off style. It is concatenated into the system prompt *after* the non-negotiable factual instructions, and the system prompt explicitly states that factual constraints override persona instructions.
-* The persona file cannot grant capabilities: regardless of persona content, the LLM still only writes summary prose for the items it is given (see LLM Behavior). A persona that says "make up exciting news" has no mechanism to do so because the renderer attaches all titles, sources, and links deterministically.
+* The persona file cannot grant capabilities: regardless of persona content, summary generation is still limited to prose for the items it is given, and mention chat can only answer the direct user message with the context provided (see LLM Behavior). A persona that says "make up exciting news" has no mechanism to alter briefing titles, sources, or links because the renderer attaches those deterministically.
 * If the persona file is missing or unreadable: log a warning, proceed with a neutral built-in voice. Never fail the briefing over a persona.
 * The null provider and `--no-llm` mode ignore personas entirely — fallback output is plain titles/sources/links with no voice.
 * Keep personas short (a few hundred words). The repo ships `personas/default.md` (neutral, concise) and one example with obvious character, as templates.
@@ -386,7 +390,7 @@ CREATE TABLE feed_state (
 Notes:
 
 * `dedup_hash` is the single uniqueness constraint on items (no redundant unique URL column).
-* Items carry no section/category column — section membership lives only in `briefing_items`, since a story can legitimately appear in multiple sections (an AI story in both `news` and `tech`) and history stays queryable (useful for Stage 9 search).
+* Items carry no section/category column — section membership lives only in `briefing_items`, since a story can legitimately appear in multiple sections (an AI story in both `news` and `tech`) and history stays queryable (useful for Stage 10 search).
 * **Every connection must execute `PRAGMA foreign_keys = ON`** — SQLite ignores foreign key constraints by default, and without this the `ON DELETE CASCADE` clauses are decorative.
 * Summaries are cached keyed by `(item, model, prompt_hash)`, so changing models or editing a persona invalidates the cache naturally instead of serving stale voice/content.
 * `briefing db prune --older-than 90d` deletes old items and briefings; their summaries and `briefing_items` rows go with them via CASCADE. The database does not grow unbounded.
@@ -395,6 +399,13 @@ Notes:
 ## LLM Behavior
 
 The LLM is optional and replaceable.
+
+There are two LLM use cases, with separate prompts and response handling:
+
+* **Briefing summaries:** structured JSON prose for selected RSS items only.
+* **Mention chat:** plain-text replies to direct Discord mentions, using the configured persona.
+
+Briefing-summary constraints are stricter because those responses sit beside real news items.
 
 **Structural constraint (the anti-hallucination mechanism):** the LLM never emits URLs, source names, or story titles into the briefing. The code hands it a numbered list of selected items (title + feed summary/extracted text) and receives back summary prose per item number, plus optionally a short section lede. The renderer then deterministically attaches the real title, source, and link to each summary. A made-up story has nowhere to go; a wrong link is impossible. This also means the `--no-llm` fallback (plain title/source/link) is the same render path with empty prose.
 
@@ -457,6 +468,32 @@ Response handling — per-item degradation, never all-or-nothing:
 
 Failure handling: timeout, connection error, or malformed output → log, fall back to plain rendering for that section. The briefing always ships.
 
+### Mention Chat Contract
+
+Mention chat is intentionally small at first. When an allowed Discord user mentions the bot and the message is not recognized as a briefing/weather/calendar/help command, the bot may send the remaining text to the local LLM and reply in-channel.
+
+System prompt assembly order for mention chat:
+
+1. Chat behavior constraints.
+2. Persona file contents.
+3. Explicit note that behavior constraints override persona text on conflict.
+
+The chat constraints are:
+
+* You are Huginn, a private Discord bot for the user.
+* Respond naturally in the configured persona.
+* Be concise unless the user asks for depth.
+* Do not claim to have checked live data, Discord history, files, feeds, weather, calendar, or the internet unless that context was explicitly provided in the prompt.
+* If the user asks for a briefing, news, tech, weather, calendar, search, watch-list management, or help, those are application commands and should be handled by deterministic routing before chat.
+* Do not invent personal memories. Stateless mention chat has no memory beyond the current message.
+
+Response handling:
+
+* Plain text only; no JSON contract.
+* Split responses using the same Discord length-safe sending path as other bot text.
+* On timeout, connection error, or empty response, send a short failure message instead of retrying indefinitely.
+* If `[discord.interactive].mention_chat_enabled = false`, unknown mentions keep using the deterministic fallback/help response.
+
 The provider abstraction targets the OpenAI-compatible `/v1/chat/completions` API, which covers Ollama and llama-server with a single implementation. A `null` provider satisfies the interface for `--no-llm` and tests.
 
 ## Discord Output
@@ -490,7 +527,7 @@ High 91°F, scattered storms likely after 2 PM.
 
 ## Interactive Discord Mode (Later Stage)
 
-Slash commands first; natural language later.
+Slash commands first; deterministic mention routing second; persona chat third.
 
 ```
 /briefing now
@@ -498,6 +535,10 @@ Slash commands first; natural language later.
 /briefing tech
 /weather
 /calendar today
+/watch add term:<term>
+/watch list
+/search briefings query:<query>
+/search items query:<query>
 /feeds list
 /summarize url:<url>
 ```
@@ -505,6 +546,16 @@ Slash commands first; natural language later.
 **Implementation note:** Discord interactions must be acknowledged within 3 seconds. Briefing generation takes longer, so every command defers (`defer()`) immediately and posts the result as a follow-up. This goes in the spec so it isn't discovered in production.
 
 Slash commands call the same core functions as `briefing run` — no parallel code path.
+
+Mention handling:
+
+* Ignore messages from bots.
+* Respond only when the bot is directly mentioned and the guild/channel/user allowlist permits the message.
+* Strip bot mentions before routing.
+* `help`, `what can you do`, and `commands` return deterministic command help, not an LLM answer.
+* Known deterministic intents (`briefing`, `news`, `tech`, `weather`, `calendar`, `search`, `watch`) route to application code.
+* Unknown mentions route to mention chat only when `[discord.interactive].mention_chat_enabled = true`; otherwise they return deterministic help.
+* Mention chat is stateless in the first version. Conversation history, remembered facts, and retrieval from the briefing database are later-stage features.
 
 ## Stage Plan
 
@@ -570,11 +621,26 @@ WantedBy=timers.target
 * Long-running `discord.py` bot service. `/briefing now|news|tech`, `/weather`, `/calendar today`. Defer-then-followup on every command. Restricted to configured guild/channel/user IDs.
 * **Acceptance:** `/briefing tech` in Discord generates and posts a tech briefing on demand.
 
-### Stage 8: Natural Language Chat
-* Mention-based interaction in one allowed channel, simple intent router, safe fallback when unsure, same core functions as slash commands.
+### Stage 8: Mention Intent Routing and Help
+* Mention-based interaction in allowed Discord contexts. Strip bot mentions, route obvious natural-language requests to the same core functions as slash commands, and keep `help` deterministic.
+* Help output lists available slash commands and supported mention intents. Unknown mentions return help while mention chat is disabled.
+* **Acceptance:** `@huginn help` returns command help; `@huginn weather` returns weather; `@huginn news` returns a news briefing; an unrelated mention returns help when chat is disabled.
 
-### Stage 9: Memory and Search
+### Stage 9: Stateless Persona Mention Chat
+* Add a plain-text chat method to the OpenAI-compatible provider, with a chat-specific system prompt that loads the configured persona but does not use the briefing JSON prompt.
+* Add `[discord.interactive].mention_chat_enabled`, `mention_chat_max_tokens`, and `mention_chat_temperature` config.
+* Unknown allowed mentions call the local LLM and reply in the configured persona. Deterministic command routing and help still win before chat.
+* Failure handling: timeout, connection error, disabled LLM, or empty response produces a short safe fallback; the bot service keeps running.
+* **Acceptance:** with chat enabled and the local LLM running, `@huginn say something in your own voice` gets a persona-styled reply; `@huginn help` still returns command help; killing the LLM produces a controlled fallback.
+
+### Stage 10: Memory and Search
 * Search past briefings and seen items (the `briefing_items` history makes this cheap). Topic watch list: `/watch add`, `/watch list`, `/search briefings "Fedora"`.
+
+### Stage 11: Conversational Memory (Optional)
+* Add opt-in short conversation history per channel/user, bounded by token count and time.
+* Add explicit remembered facts only through user-approved commands, not by silently storing arbitrary chat.
+* Allow retrieval from past briefings/search results as explicit tool context when the user asks for it.
+* **Acceptance:** chat can answer follow-up questions within a short session, but privacy-sensitive retention is off unless configured.
 
 ## Testing Requirements
 
@@ -590,12 +656,16 @@ pytest. Minimum:
 * Renderer output is non-empty and within Discord limits; over-length briefings split correctly.
 * A failing feed does not fail the briefing.
 * Persona file present/absent/overridden produces the expected system prompt; missing persona does not fail the run.
+* Mention intent routing: help stays deterministic; known intents route to application code; unknown mentions route to help when chat is disabled.
+* Mention chat prompt assembly uses the chat constraints plus persona, not the briefing JSON summary prompt.
+* Mention chat failure paths return a controlled fallback and do not crash the Discord bot.
 
 ## Reliability Requirements
 
 * Network errors: logged, skipped, never fatal to the briefing.
 * One broken feed never breaks the section; one broken section never breaks the briefing.
 * LLM failure falls back to plain rendering.
+* Mention chat LLM failure falls back to a short deterministic message.
 * Discord delivery failure returns a nonzero exit code (so systemd records the failure).
 * Dry-run (the default) never sends.
 * Database writes are idempotent; re-running after a crash is safe.
@@ -608,6 +678,8 @@ pytest. Minimum:
 * Webhook URLs and other secrets are never logged.
 * All HTTP fetches (feeds, articles, weather, calendar) use timeouts.
 * Interactive commands are restricted to configured server/channel/user IDs.
+* Mention chat is restricted to the same configured server/channel/user IDs.
+* Mention chat is stateless by default and does not persist user messages unless an explicit memory feature is enabled later.
 
 ## Definition of Done
 

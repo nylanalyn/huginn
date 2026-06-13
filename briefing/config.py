@@ -44,6 +44,9 @@ class DiscordInteractiveConfig(WarnUnknownModel):
     allowed_guild_ids: list[int] = Field(default_factory=list)
     allowed_channel_ids: list[int] = Field(default_factory=list)
     allowed_user_ids: list[int] = Field(default_factory=list)
+    mention_chat_enabled: bool = False
+    mention_chat_max_tokens: int = 500
+    mention_chat_temperature: float = 0.7
 
 
 class DiscordConfig(WarnUnknownModel):
@@ -99,6 +102,7 @@ class RssSectionConfig(WarnUnknownModel):
     enabled: bool = True
     use_llm: bool = True
     max_items: int = 8
+    max_items_per_feed: int | None = None
     since_hours: int = 24
     extract_full_article: bool = False
     feeds: list[str]
@@ -117,7 +121,13 @@ SectionConfig = WeatherSectionConfig | CalendarSectionConfig | RssSectionConfig
 class FeedConfig(WarnUnknownModel):
     name: str
     url: str
+    type: Literal["rss", "html_links", "noaa_alerts"] = "rss"
+    base_url: str | None = None
+    link_pattern: str | None = None
     priority: int = 0
+    filter_include_keywords: list[str] = Field(default_factory=list)
+    filter_exclude_keywords: list[str] = Field(default_factory=list)
+    filter_area_keywords: list[str] = Field(default_factory=list)
 
 
 class AppConfig(WarnUnknownModel):

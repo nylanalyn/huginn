@@ -41,3 +41,5 @@ htmlcov/
 .DS_Store
 .idea/
 .vscode/
+briefing_sources.json
+music/

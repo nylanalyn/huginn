@@ -21,3 +21,12 @@ class LlmProvider(Protocol):
     model: str
 
     def summarize(self, *, system_prompt: str, items: list[SummaryRequestItem]) -> SummaryResult: ...
+
+    def chat(
+        self,
+        *,
+        system_prompt: str,
+        message: str,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> str: ...

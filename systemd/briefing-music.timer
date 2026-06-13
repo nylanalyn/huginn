@@ -1,0 +1,11 @@
+[Unit]
+Description=Run music morning briefing on Saturdays at 06:00
+
+[Timer]
+Unit=briefing@music.service
+OnCalendar=Sat *-*-* 06:00:00
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

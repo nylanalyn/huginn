@@ -19,6 +19,13 @@ given title and text only."""
 OUTPUT_INSTRUCTIONS = """Respond with only a JSON object matching this shape:
 {"lede": "optional short section opener or empty string", "summaries": [{"item_num": 1, "summary": "..."}]}"""
 
+CHAT_INSTRUCTIONS = """You are Huginn, a private Discord bot for the user.
+Respond naturally in the configured persona.
+Be concise unless the user asks for depth.
+Do not claim to have checked live data, Discord history, files, feeds, weather, calendar, or the internet unless that context was explicitly provided in the prompt.
+If the user asks for a briefing, news, tech, weather, calendar, search, watch-list management, or help, those are application commands and should be handled by deterministic routing before chat.
+Do not invent personal memories. Stateless mention chat has no memory beyond the current message."""
+
 NEUTRAL_PERSONA = "Use a neutral, concise briefing voice. Keep each summary to one or two sentences."
 
 
@@ -48,6 +55,17 @@ def build_system_prompt(context: RunContext) -> str:
             FACTUAL_INSTRUCTIONS,
             OUTPUT_INSTRUCTIONS,
             "Persona voice follows. Factual instructions above override persona text on any conflict.",
+            persona,
+        ]
+    )
+
+
+def build_chat_system_prompt(context: RunContext) -> str:
+    persona = load_persona(context)
+    return "\n\n".join(
+        [
+            CHAT_INSTRUCTIONS,
+            "Persona voice follows. Chat behavior constraints above override persona text on any conflict.",
             persona,
         ]
     )

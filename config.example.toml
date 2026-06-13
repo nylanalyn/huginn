@@ -11,6 +11,9 @@ token_env = "DISCORD_BOT_TOKEN"
 allowed_guild_ids = [123456789]
 allowed_channel_ids = [987654321]
 allowed_user_ids = []
+mention_chat_enabled = false
+mention_chat_max_tokens = 500
+mention_chat_temperature = 0.7
 
 [llm]
 enabled = true

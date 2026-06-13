@@ -1,0 +1,11 @@
+[Unit]
+Description=Run local morning briefing on Fridays at 06:00
+
+[Timer]
+Unit=briefing@local.service
+OnCalendar=Fri *-*-* 06:00:00
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target
