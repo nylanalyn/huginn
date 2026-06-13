@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import discord
 from discord import app_commands
 
+from briefing.actions import feeds_list_text, summarize_url_text
 from briefing.config import AppConfig
 from briefing.core import render_sections
 from briefing.discord_webhook import DISCORD_CONTENT_LIMIT, split_sections_for_discord
@@ -202,6 +203,22 @@ class BriefingDiscordBot(discord.Client):
             )
 
         self.tree.add_command(search_group)
+
+        feeds_group = app_commands.Group(name="feeds", description="Inspect configured feeds")
+
+        @feeds_group.command(name="list", description="List configured feeds")
+        async def feeds_list(interaction: discord.Interaction) -> None:
+            await self._handle_text_command(interaction, lambda: feeds_list_text(self.config))
+
+        self.tree.add_command(feeds_group)
+
+        summarize_group = app_commands.Group(name="summarize", description="Summarize fetched content")
+
+        @summarize_group.command(name="url", description="Summarize a URL")
+        async def summarize_url(interaction: discord.Interaction, url: str) -> None:
+            await self._handle_text_command(interaction, lambda: summarize_url_text(self.config, url))
+
+        self.tree.add_command(summarize_group)
 
     async def _handle_briefing(
         self,

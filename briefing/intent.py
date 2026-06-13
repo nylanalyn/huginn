@@ -25,6 +25,7 @@ HELP_MESSAGE = """I can handle:
 * `/calendar today`
 * `/watch add <term>` and `/watch list`
 * `/search briefings <query>` and `/search items <query>`
+* `/feeds list` and `/summarize url <url>`
 
 Mention shortcuts:
 * `@huginn briefing` or `@huginn briefing <profile>`

@@ -86,3 +86,27 @@ def test_search_cli_items(tmp_path: Path, capsys) -> None:
     assert main(["--config", str(config_path), "search", "items", "Fedora"]) == 0
 
     assert "No items found for: Fedora" in capsys.readouterr().out
+
+
+def test_feeds_list_cli(tmp_path: Path, capsys) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+        [feeds.alpha]
+        name = "Alpha Feed"
+        url = "https://example.com/feed.xml"
+        priority = 7
+        """,
+        encoding="utf-8",
+    )
+
+    assert main(["--config", str(config_path), "feeds", "list"]) == 0
+
+    assert "* alpha: Alpha Feed (priority=7) - https://example.com/feed.xml" in capsys.readouterr().out
+
+
+def test_summarize_url_cli_rejects_invalid_url(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text("", encoding="utf-8")
+
+    assert main(["--config", str(config_path), "summarize", "url", "not-a-url"]) == 2

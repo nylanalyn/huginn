@@ -8,6 +8,7 @@ import sys
 
 import httpx
 
+from briefing.actions import feeds_list_text, summarize_url_text
 from briefing.config import (
     ConfigError,
     load_config,
@@ -67,6 +68,12 @@ def build_parser() -> argparse.ArgumentParser:
     feeds_subparsers = feeds_parser.add_subparsers(dest="feeds_command", required=True)
     feeds_list = feeds_subparsers.add_parser("list", help="List configured feeds")
     feeds_list.set_defaults(func=feeds_list_command)
+
+    summarize_parser = subparsers.add_parser("summarize", help="Summarize fetched content")
+    summarize_subparsers = summarize_parser.add_subparsers(dest="summarize_command", required=True)
+    summarize_url = summarize_subparsers.add_parser("url", help="Summarize a URL")
+    summarize_url.add_argument("url")
+    summarize_url.set_defaults(func=summarize_command)
 
     db_parser = subparsers.add_parser("db", help="Database commands")
     db_subparsers = db_parser.add_subparsers(dest="db_command", required=True)
@@ -152,8 +159,16 @@ def run_command(args: argparse.Namespace) -> int:
 
 def feeds_list_command(args: argparse.Namespace) -> int:
     config = load_config(args.config)
-    for key, feed in sorted(config.feeds.items()):
-        print(f"{key}\t{feed.name}\tpriority={feed.priority}\t{feed.url}")
+    print(feeds_list_text(config))
+    return 0
+
+
+def summarize_command(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    try:
+        print(summarize_url_text(config, args.url))
+    except (ValueError, httpx.HTTPError) as exc:
+        raise ConfigError(f"Could not summarize URL: {exc}") from exc
     return 0
 
 

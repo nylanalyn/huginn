@@ -108,6 +108,8 @@ Set `[discord.interactive].enabled = true` in local `config.toml`, set
 /watch list
 /search briefings
 /search items
+/feeds list
+/summarize url
 ```
 
 Mention-based chat is also available in allowed channels:
