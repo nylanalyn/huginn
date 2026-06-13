@@ -102,6 +102,7 @@ Set `[discord.interactive].enabled = true` in local `config.toml`, set
 /briefing now
 /briefing news
 /briefing tech
+/briefing profile
 /weather
 /calendar today
 /watch add
