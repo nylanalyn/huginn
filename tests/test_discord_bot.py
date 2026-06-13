@@ -8,6 +8,7 @@ from briefing.discord_bot import (
     CHAT_UNAVAILABLE_MESSAGE,
     BriefingDiscordBot,
     InteractionIdentity,
+    _split_text_for_discord,
     interaction_allowed,
 )
 
@@ -119,6 +120,10 @@ def test_mention_chat_disabled_llm_returns_fallback(tmp_path: Path) -> None:
     bot = StubbedDiscordBot(config, FakeChatProvider())
 
     assert bot._chat_for_interaction("say hello") == CHAT_UNAVAILABLE_MESSAGE
+
+
+def test_empty_text_command_result_is_explicit() -> None:
+    assert _split_text_for_discord("") == ["Result\n(empty result)"]
 
 
 def test_mention_chat_includes_and_records_opt_in_memory(tmp_path: Path) -> None:

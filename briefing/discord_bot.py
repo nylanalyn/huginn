@@ -421,7 +421,8 @@ def _strip_bot_mentions(content: str, display_name: str) -> str:
 def _split_text_for_discord(text: str) -> list[str]:
     from briefing.sections.base import RenderedSection
 
-    return split_sections_for_discord([RenderedSection(title="Result", lines=text.splitlines())])
+    lines = text.splitlines() if text.strip() else ["(empty result)"]
+    return split_sections_for_discord([RenderedSection(title="Result", lines=lines)])
 
 
 def _split_plain_text_for_discord(text: str) -> list[str]:

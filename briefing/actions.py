@@ -10,6 +10,7 @@ from briefing.llm.openai_compat import OpenAICompatProvider
 
 URL_FETCH_TIMEOUT_SECONDS = 20
 URL_TEXT_LIMIT = 12000
+FALLBACK_SENTENCE_LIMIT = 5
 
 
 def feeds_list_text(config: AppConfig) -> str:
@@ -40,15 +41,73 @@ def summarize_url_text(config: AppConfig, url: str) -> str:
         raise ValueError("No readable text found at URL")
 
     provider = OpenAICompatProvider(config.llm)
-    return provider.chat(
-        system_prompt=(
+    summary = _llm_summarize(provider, config, url, text)
+    if not summary:
+        return _extractive_summary(url, text)
+    return summary
+
+
+def _llm_summarize(
+    provider: OpenAICompatProvider,
+    config: AppConfig,
+    url: str,
+    text: str,
+) -> str:
+    article_text = text[:URL_TEXT_LIMIT]
+    prompts = [
+        (
             "Summarize the user-provided article text. Be concise and factual. "
-            "Do not invent details. Include 3-5 bullets and a one-sentence why-it-matters line."
+            "Do not invent details. Include 3-5 bullets and a one-sentence why-it-matters line.",
+            f"URL: {url}\n\nArticle text:\n{article_text}",
         ),
-        message=f"URL: {url}\n\nArticle text:\n{text[:URL_TEXT_LIMIT]}",
-        max_tokens=min(config.llm.max_tokens, 600),
-        temperature=config.llm.temperature,
-    ).strip()
+        (
+            "Write a concise factual summary of the supplied text. If the text is incomplete, summarize only what is present.",
+            f"Summarize this page from {url} in 4 bullets:\n\n{article_text[:8000]}",
+        ),
+    ]
+    for system_prompt, message in prompts:
+        summary = provider.chat(
+            system_prompt=system_prompt,
+            message=message,
+            max_tokens=min(config.llm.max_tokens, 600),
+            temperature=config.llm.temperature,
+        ).strip()
+        if summary:
+            return summary
+    return ""
+
+
+def _extractive_summary(url: str, text: str) -> str:
+    sentences = _sentences(text)
+    excerpt = " ".join(sentences[:FALLBACK_SENTENCE_LIMIT]).strip()
+    if not excerpt:
+        raise ValueError("No readable text found at URL")
+    return (
+        "LLM summary was empty; showing an extractive fallback.\n\n"
+        f"Source: {url}\n\n"
+        f"{excerpt}"
+    )
+
+
+def _sentences(text: str) -> list[str]:
+    collapsed = " ".join(text.split())
+    if not collapsed:
+        return []
+    sentences: list[str] = []
+    start = 0
+    for index, char in enumerate(collapsed):
+        if char not in ".!?":
+            continue
+        end = index + 1
+        sentence = collapsed[start:end].strip()
+        if sentence:
+            sentences.append(sentence)
+        start = end
+        if len(sentences) >= FALLBACK_SENTENCE_LIMIT:
+            break
+    if not sentences:
+        return [collapsed[:1000].rstrip()]
+    return sentences
 
 
 def _extract_text(response: httpx.Response) -> str:

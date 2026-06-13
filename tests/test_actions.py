@@ -74,3 +74,79 @@ def test_summarize_url_fetches_text_and_calls_llm(monkeypatch, tmp_path) -> None
     assert calls["get"]["url"] == "https://example.com/story"
     assert "Useful article text." in calls["post"]["json"]["messages"][1]["content"]
     assert "ignore()" not in calls["post"]["json"]["messages"][1]["content"]
+
+
+def test_summarize_url_retries_empty_llm_response(monkeypatch, tmp_path) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+        [llm]
+        base_url = "http://llm.local/v1"
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(config_path)
+
+    def fake_get(url, **kwargs):
+        del kwargs
+        return httpx.Response(
+            200,
+            request=httpx.Request("GET", url),
+            headers={"Content-Type": "text/plain"},
+            text="Useful article text.",
+        )
+
+    post_calls = []
+
+    def fake_post(url, json, timeout):
+        del json, timeout
+        post_calls.append(url)
+        content = "   " if len(post_calls) == 1 else "Retry summary"
+        return httpx.Response(
+            200,
+            request=httpx.Request("POST", url),
+            json={"choices": [{"message": {"content": content}}]},
+        )
+
+    monkeypatch.setattr("briefing.actions.httpx.get", fake_get)
+    monkeypatch.setattr("briefing.llm.openai_compat.httpx.post", fake_post)
+
+    assert summarize_url_text(config, "https://example.com/story") == "Retry summary"
+    assert len(post_calls) == 2
+
+
+def test_summarize_url_falls_back_when_llm_stays_empty(monkeypatch, tmp_path) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+        [llm]
+        base_url = "http://llm.local/v1"
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(config_path)
+
+    def fake_get(url, **kwargs):
+        del kwargs
+        return httpx.Response(
+            200,
+            request=httpx.Request("GET", url),
+            headers={"Content-Type": "text/plain"},
+            text="First useful sentence. Second useful sentence. Third useful sentence.",
+        )
+
+    def fake_post(url, json, timeout):
+        del json, timeout
+        return httpx.Response(
+            200,
+            request=httpx.Request("POST", url),
+            json={"choices": [{"message": {"content": "   "}}]},
+        )
+
+    monkeypatch.setattr("briefing.actions.httpx.get", fake_get)
+    monkeypatch.setattr("briefing.llm.openai_compat.httpx.post", fake_post)
+
+    result = summarize_url_text(config, "https://example.com/story")
+
+    assert "LLM summary was empty" in result
+    assert "First useful sentence." in result
