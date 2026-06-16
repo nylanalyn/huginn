@@ -102,8 +102,8 @@ def test_rss_render_uses_llm_and_caches_summary(tmp_path: Path) -> None:
     second = section.render([item], context)
 
     assert provider.calls == 1
-    assert "Summary for Story." in "\n".join(first.lines)
-    assert "Summary for Story." in "\n".join(second.lines)
+    assert first.lines == ["* **Story** - Summary for Story."]
+    assert second.lines == ["* **Story** - Summary for Story."]
 
 
 def test_no_llm_does_not_construct_provider(tmp_path: Path) -> None:

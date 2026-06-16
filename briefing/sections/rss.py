@@ -91,7 +91,7 @@ class RssSection:
         for item in items:
             summary = summaries.get(item.id)
             if summary:
-                lines.append(f"* {summary}")
+                lines.append(f"* **{item.title}** - {summary}")
             else:
                 lines.append(f"* {item.title}")
             if item.url:
