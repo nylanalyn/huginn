@@ -113,4 +113,5 @@ def test_no_llm_does_not_construct_provider(tmp_path: Path) -> None:
 
     rendered = section.render([item], RunContext(config=config, no_llm=True))
 
-    assert "Source: Feed" in "\n".join(rendered.lines)
+    assert rendered.lines == ["* Story"]
+    assert rendered.link_lines == ["https://example.com/Story"]

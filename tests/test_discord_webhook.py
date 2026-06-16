@@ -24,3 +24,17 @@ def test_discord_split_handles_single_overlong_line() -> None:
 
     assert len(messages) == 3
     assert all(len(message) <= DISCORD_CONTENT_LIMIT for message in messages)
+
+
+def test_discord_split_sends_links_after_summary_message() -> None:
+    sections = [
+        RenderedSection(
+            title="News",
+            lines=["* Useful summary."],
+            link_lines=["https://example.com/story"],
+        )
+    ]
+
+    messages = split_sections_for_discord(sections)
+
+    assert messages == ["News\n* Useful summary.", "Links\nhttps://example.com/story"]

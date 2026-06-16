@@ -69,7 +69,7 @@ def split_sections_for_discord(
     current = ""
 
     for section in sections:
-        section_text = _section_to_text(section)
+        section_text = _section_to_text(section, include_links=False)
         for chunk in _split_text(section_text, limit):
             candidate = _join_blocks(current, chunk)
             if current and len(candidate) > limit:
@@ -80,11 +80,18 @@ def split_sections_for_discord(
 
     if current:
         messages.append(current)
+
+    link_lines = [line for section in sections for line in section.link_lines]
+    if link_lines:
+        link_text = "Links\n" + "\n".join(link_lines)
+        messages.extend(_split_text(link_text, limit))
     return messages
 
 
-def _section_to_text(section: RenderedSection) -> str:
+def _section_to_text(section: RenderedSection, *, include_links: bool = True) -> str:
     body = "\n".join(section.lines) if section.lines else "(no items)"
+    if include_links and section.link_lines:
+        body = body + "\n" + "\n".join(section.link_lines)
     return f"{section.title}\n{body}"
 
 

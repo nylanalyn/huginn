@@ -18,6 +18,7 @@ class Item:
 class RenderedSection:
     title: str
     lines: list[str] = field(default_factory=list)
+    link_lines: list[str] = field(default_factory=list)
     item_ids: list[int] = field(default_factory=list)
 
 

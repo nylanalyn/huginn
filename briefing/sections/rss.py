@@ -86,18 +86,22 @@ class RssSection:
 
     def render(self, items: list[RssItem], context: RunContext) -> RenderedSection:
         lines: list[str] = []
+        link_lines: list[str] = []
         summaries = self._summaries_for_items(items, context)
         for item in items:
-            lines.append(f"* {item.title}")
             summary = summaries.get(item.id)
             if summary:
-                lines.append(f"  {summary}")
-            lines.append(f"  Source: {item.source} - {item.url}")
+                lines.append(f"* {summary}")
+            else:
+                lines.append(f"* {item.title}")
+            if item.url:
+                link_lines.append(item.url)
         if not lines:
             lines.append("No new items.")
         return RenderedSection(
             title=self.name.title(),
             lines=lines,
+            link_lines=link_lines,
             item_ids=[item.id for item in items],
         )
 
