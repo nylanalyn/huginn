@@ -9,7 +9,14 @@ calendar.json
 *.sqlite
 *.sqlite3
 *.db
+*.sqlite3-wal
+*.sqlite3-shm
+*-wal
+*-shm
 briefing.sqlite3
+
+# Local-only planning notes
+TODO.md
 
 # Virtual environments
 .venv/

@@ -93,6 +93,10 @@ class StoredItem:
 
 
 class Database:
+    # Paths whose schema has already been created in this process. Avoids
+    # re-running the full schema script on every single query.
+    _initialized_paths: set[str] = set()
+
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
 
@@ -100,11 +104,19 @@ class Database:
         connection = sqlite3.connect(self.path)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
+        # Allow concurrent readers/writers (the bot runs DB work on threads) to
+        # wait instead of immediately raising "database is locked".
+        connection.execute("PRAGMA busy_timeout = 5000")
+        connection.execute("PRAGMA journal_mode = WAL")
         return connection
 
-    def init(self) -> None:
+    def init(self, *, force: bool = False) -> None:
+        key = str(self.path)
+        if not force and key in Database._initialized_paths:
+            return
         with self.connect() as connection:
             connection.executescript(SCHEMA)
+        Database._initialized_paths.add(key)
 
     def insert_or_get_item(
         self,
@@ -181,6 +193,18 @@ class Database:
                 (item_id,),
             ).fetchone()
         return row is not None
+
+    def used_item_ids(self, item_ids: list[int]) -> set[int]:
+        if not item_ids:
+            return set()
+        self.init()
+        placeholders = ",".join("?" for _ in item_ids)
+        with self.connect() as connection:
+            rows = connection.execute(
+                f"SELECT DISTINCT item_id FROM briefing_items WHERE item_id IN ({placeholders})",
+                tuple(item_ids),
+            ).fetchall()
+        return {int(row["item_id"]) for row in rows}
 
     def items_for_feed(self, feed_key: str) -> list[StoredItem]:
         self.init()

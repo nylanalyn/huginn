@@ -60,15 +60,19 @@ class RssSection:
         cutoff = cutoff_from_hours(utc_now(), since_hours)
         database = Database(context.config.bot.database_path)
 
-        selected: list[RssItem] = []
+        deduped: list[RssItem] = []
         seen_candidates: set[tuple[int, str]] = set()
         for item in items:
             candidate_key = (item.id, item.dedup_hash)
             if candidate_key in seen_candidates:
                 continue
             seen_candidates.add(candidate_key)
-            if item.published_at > cutoff and not database.item_was_used(item.id):
-                selected.append(item)
+            deduped.append(item)
+
+        used = database.used_item_ids([item.id for item in deduped])
+        selected = [
+            item for item in deduped if item.published_at > cutoff and item.id not in used
+        ]
         selected.sort(key=lambda item: (item.feed_priority, item.published_at), reverse=True)
         if self.section_config.max_items_per_feed:
             capped: list[RssItem] = []
@@ -87,7 +91,9 @@ class RssSection:
     def render(self, items: list[RssItem], context: RunContext) -> RenderedSection:
         lines: list[str] = []
         link_lines: list[str] = []
-        summaries = self._summaries_for_items(items, context)
+        lede, summaries = self._summaries_for_items(items, context)
+        if lede:
+            lines.append(lede)
         for item in items:
             summary = summaries.get(item.id)
             if summary:
@@ -105,9 +111,11 @@ class RssSection:
             item_ids=[item.id for item in items],
         )
 
-    def _summaries_for_items(self, items: list[RssItem], context: RunContext) -> dict[int, str]:
+    def _summaries_for_items(
+        self, items: list[RssItem], context: RunContext
+    ) -> tuple[str, dict[int, str]]:
         if not items or not llm_enabled_for_section(context, self.section_config.use_llm):
-            return {}
+            return "", {}
 
         database = Database(context.config.bot.database_path)
         system_prompt = build_system_prompt(context)
@@ -124,7 +132,7 @@ class RssSection:
                 missing.append(item)
 
         if not missing:
-            return summaries
+            return "", summaries
 
         try:
             provider = self._build_llm_provider(context)
@@ -135,7 +143,7 @@ class RssSection:
             result = provider.summarize(system_prompt=system_prompt, items=request_items)
         except Exception as exc:
             LOG.warning("LLM summaries unavailable for section %s: %s", self.name, exc)
-            return summaries
+            return "", summaries
 
         for index, item in enumerate(missing, start=1):
             summary = result.summaries.get(index, "").strip()
@@ -148,7 +156,7 @@ class RssSection:
                 prompt_hash=cache_key,
                 summary=summary,
             )
-        return summaries
+        return result.lede.strip(), summaries
 
     def _build_llm_provider(self, context: RunContext) -> LlmProvider:
         return OpenAICompatProvider(context.config.llm)

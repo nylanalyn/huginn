@@ -15,6 +15,7 @@ from briefing.intent import HELP_MESSAGE, RoutedIntent, route_mention_text
 from briefing.llm.base import LlmProvider
 from briefing.llm.openai_compat import OpenAICompatProvider
 from briefing.llm.prompt import build_chat_system_prompt
+from briefing.render.text import render_briefing
 from briefing.memory import (
     add_watch_text,
     clear_remembered_facts_text,
@@ -322,7 +323,27 @@ class BriefingDiscordBot(discord.Client):
         if not section_names:
             section_names = ["ping"]
         context = RunContext(config=self.config, profile_name=profile, format_name="discord")
-        return render_sections(section_names, context)
+        rendered = render_sections(section_names, context)
+        self._record_briefing(profile, section_names, rendered)
+        return rendered
+
+    def _record_briefing(
+        self,
+        profile: str | None,
+        section_names: list[str],
+        rendered,
+    ) -> None:
+        # Persist the briefing so item dedup, history, and `/search briefings`
+        # work for the interactive bot the same way they do for webhook sends.
+        try:
+            Database(self.config.bot.database_path).record_sent_briefing(
+                profile=profile,
+                section_names=section_names,
+                rendered_sections=rendered,
+                body=render_briefing(rendered),
+            )
+        except Exception as exc:
+            LOG.warning("Failed to record interactive briefing: %s", exc)
 
     def _text_for_interaction(self, routed: RoutedIntent, identity: InteractionIdentity) -> str:
         database = Database(self.config.bot.database_path)

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from html.parser import HTMLParser
-from urllib.parse import urlparse
 
 import httpx
 
 from briefing.config import AppConfig
 from briefing.llm.openai_compat import OpenAICompatProvider
+from briefing.utils.net import assert_public_http_url, get_public_url
 
 URL_FETCH_TIMEOUT_SECONDS = 20
 URL_TEXT_LIMIT = 12000
@@ -23,17 +23,16 @@ def feeds_list_text(config: AppConfig) -> str:
 
 
 def summarize_url_text(config: AppConfig, url: str) -> str:
-    parsed = urlparse(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError("URL must be an absolute http or https URL")
+    # SSRF guard: validates scheme and that the host (and every redirect hop)
+    # resolves to a public address before any request is made.
+    assert_public_http_url(url)
     if not config.llm.enabled:
         raise ValueError("LLM summaries are disabled in config")
 
-    response = httpx.get(
+    response = get_public_url(
         url,
         headers={"User-Agent": "morning-briefing-bot/0.1 (+local personal briefing bot)"},
         timeout=URL_FETCH_TIMEOUT_SECONDS,
-        follow_redirects=True,
     )
     response.raise_for_status()
     text = _extract_text(response)
