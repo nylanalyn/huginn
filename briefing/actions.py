@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-from html.parser import HTMLParser
-
-import httpx
-
 from briefing.config import AppConfig
 from briefing.llm.openai_compat import OpenAICompatProvider
+from briefing.utils.article import extract_text
 from briefing.utils.net import assert_public_http_url, get_public_url
 
 URL_FETCH_TIMEOUT_SECONDS = 20
@@ -35,7 +32,7 @@ def summarize_url_text(config: AppConfig, url: str) -> str:
         timeout=URL_FETCH_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
-    text = _extract_text(response)
+    text = extract_text(response)
     if not text:
         raise ValueError("No readable text found at URL")
 
@@ -109,35 +106,3 @@ def _sentences(text: str) -> list[str]:
     return sentences
 
 
-def _extract_text(response: httpx.Response) -> str:
-    content_type = response.headers.get("Content-Type", "")
-    if "html" not in content_type.casefold():
-        return " ".join(response.text.split())
-    parser = _TextParser()
-    parser.feed(response.text)
-    return parser.text()
-
-
-class _TextParser(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__()
-        self._skip_depth = 0
-        self._parts: list[str] = []
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        del attrs
-        if tag in {"script", "style", "noscript"}:
-            self._skip_depth += 1
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag in {"script", "style", "noscript"} and self._skip_depth:
-            self._skip_depth -= 1
-
-    def handle_data(self, data: str) -> None:
-        if not self._skip_depth:
-            cleaned = " ".join(data.split())
-            if cleaned:
-                self._parts.append(cleaned)
-
-    def text(self) -> str:
-        return " ".join(self._parts)

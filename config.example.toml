@@ -59,6 +59,9 @@ enabled = true
 use_llm = true
 max_items = 8
 since_hours = 24
+# When true (and use_llm is on), fetch each item's article and summarize the
+# full readable text instead of the short RSS blurb. Adds one HTTP fetch per
+# newly-summarized item; failures fall back to the blurb.
 extract_full_article = false
 feeds = ["npr", "bbc"]
 

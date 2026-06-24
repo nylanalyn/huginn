@@ -19,6 +19,7 @@ from briefing.llm.base import LlmProvider, SummaryRequestItem
 from briefing.llm.openai_compat import OpenAICompatProvider
 from briefing.llm.prompt import build_system_prompt, llm_enabled_for_section, prompt_hash
 from briefing.sections.base import Item, RenderedSection, RunContext
+from briefing.utils.article import fetch_article_text
 from briefing.utils.hashing import dedup_hash_for_entry
 from briefing.utils.time import cutoff_from_hours, parse_duration_hours, to_utc_iso, utc_now
 
@@ -27,6 +28,7 @@ LOG = logging.getLogger(__name__)
 USER_AGENT = "morning-briefing-bot/0.1 (+local personal briefing bot)"
 FEED_TIMEOUT_SECONDS = 15
 SUMMARY_LIMIT = 2000
+ARTICLE_TEXT_LIMIT = 6000
 
 
 @dataclass(frozen=True)
@@ -137,7 +139,11 @@ class RssSection:
         try:
             provider = self._build_llm_provider(context)
             request_items = [
-                SummaryRequestItem(item_num=index, title=item.title, text=item.body or item.title)
+                SummaryRequestItem(
+                    item_num=index,
+                    title=item.title,
+                    text=self._summary_source_text(item),
+                )
                 for index, item in enumerate(missing, start=1)
             ]
             result = provider.summarize(system_prompt=system_prompt, items=request_items)
@@ -160,6 +166,21 @@ class RssSection:
 
     def _build_llm_provider(self, context: RunContext) -> LlmProvider:
         return OpenAICompatProvider(context.config.llm)
+
+    def _summary_source_text(self, item: RssItem) -> str:
+        # With extract_full_article, summarize the real article body instead of
+        # the (often one-sentence) RSS blurb. Falls back to the blurb/title when
+        # the fetch yields nothing.
+        if self.section_config.extract_full_article and item.url:
+            article = fetch_article_text(
+                item.url,
+                timeout=FEED_TIMEOUT_SECONDS,
+                limit=ARTICLE_TEXT_LIMIT,
+                user_agent=USER_AGENT,
+            )
+            if article:
+                return article
+        return item.body or item.title
 
     def _fetch_feed(
         self,

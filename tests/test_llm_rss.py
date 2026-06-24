@@ -106,6 +106,80 @@ def test_rss_render_uses_llm_and_caches_summary(tmp_path: Path) -> None:
     assert second.lines == ["* **Story** - Summary for Story."]
 
 
+class RecordingProvider:
+    model = "fake-model"
+
+    def __init__(self) -> None:
+        self.received: list[SummaryRequestItem] = []
+
+    def summarize(self, *, system_prompt: str, items: list[SummaryRequestItem]) -> SummaryResult:
+        self.received = list(items)
+        return SummaryResult(
+            lede="",
+            summaries={item.item_num: f"Summary for {item.title}." for item in items},
+        )
+
+
+def _full_article_config(tmp_path: Path):
+    db_path = tmp_path / "briefing.sqlite3"
+    persona = tmp_path / "persona.md"
+    persona.write_text("Be concise.", encoding="utf-8")
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        f"""
+        [bot]
+        database_path = "{db_path}"
+
+        [llm]
+        enabled = true
+        model = "fake-model"
+        persona_path = "{persona}"
+
+        [sections.news]
+        type = "rss"
+        use_llm = true
+        extract_full_article = true
+        feeds = ["feed"]
+
+        [feeds.feed]
+        name = "Feed"
+        url = "https://example.com/feed.xml"
+        priority = 1
+        """,
+        encoding="utf-8",
+    )
+    return load_config(config_path)
+
+
+def test_extract_full_article_feeds_fetched_text_to_llm(monkeypatch, tmp_path: Path) -> None:
+    config = _full_article_config(tmp_path)
+    provider = RecordingProvider()
+    section = StubbedRssSection("news", config.sections["news"], provider)
+    item = _stored_item(config)
+
+    monkeypatch.setattr(
+        "briefing.sections.rss.fetch_article_text",
+        lambda url, **kwargs: "The full article body with much more detail.",
+    )
+
+    section.render([item], RunContext(config=config))
+
+    assert provider.received[0].text == "The full article body with much more detail."
+
+
+def test_extract_full_article_falls_back_to_blurb_on_empty_fetch(monkeypatch, tmp_path: Path) -> None:
+    config = _full_article_config(tmp_path)
+    provider = RecordingProvider()
+    section = StubbedRssSection("news", config.sections["news"], provider)
+    item = _stored_item(config)  # body == "Feed text"
+
+    monkeypatch.setattr("briefing.sections.rss.fetch_article_text", lambda url, **kwargs: "")
+
+    section.render([item], RunContext(config=config))
+
+    assert provider.received[0].text == "Feed text"
+
+
 def test_no_llm_does_not_construct_provider(tmp_path: Path) -> None:
     config = _config(tmp_path)
     section = FailingProviderSection("news", config.sections["news"])
