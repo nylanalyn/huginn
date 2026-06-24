@@ -128,7 +128,7 @@ class BriefingDiscordBot(discord.Client):
                 routed.profile,
                 routed.sections,
             )
-        for payload in self._briefing_payloads(rendered):
+        for payload in self._briefing_payloads(rendered, channel=message.channel):
             await message.channel.send(**payload)
 
     def _register_commands(self) -> None:
@@ -290,7 +290,7 @@ class BriefingDiscordBot(discord.Client):
             return
 
         rendered = await asyncio.to_thread(self._render_for_interaction, profile, sections)
-        for payload in self._briefing_payloads(rendered):
+        for payload in self._briefing_payloads(rendered, channel=interaction.channel):
             await interaction.followup.send(**payload)
 
     async def _handle_text_command(self, interaction: discord.Interaction, callback) -> None:
@@ -322,10 +322,12 @@ class BriefingDiscordBot(discord.Client):
         self._record_briefing(profile, section_names, rendered)
         return rendered
 
-    def _briefing_payloads(self, rendered) -> list[dict]:
+    def _briefing_payloads(self, rendered, *, channel=None) -> list[dict]:
         # Returns kwargs for Discord's send(): either {"content": str} or
-        # {"embeds": [...]} depending on the use_embeds config flag.
-        if self.config.discord.use_embeds:
+        # {"embeds": [...]}. Embeds are used only when configured AND the bot
+        # actually has the Embed Links permission here -- otherwise Discord
+        # silently drops the embed and the message arrives empty.
+        if self.config.discord.use_embeds and self._can_embed(channel):
             batches = batch_embeds_for_messages(build_briefing_embeds(rendered))
             if not batches:
                 return [{"content": "(empty briefing)"}]
@@ -337,6 +339,19 @@ class BriefingDiscordBot(discord.Client):
         if not messages:
             messages = ["(empty briefing)"]
         return [{"content": message} for message in messages]
+
+    def _can_embed(self, channel) -> bool:
+        # DMs and unknown channels: assume embeds are allowed. In a guild,
+        # check the bot's Embed Links permission so we degrade to text instead
+        # of posting an empty message when the permission is missing.
+        guild = getattr(channel, "guild", None)
+        if guild is None or guild.me is None:
+            return True
+        try:
+            return bool(channel.permissions_for(guild.me).embed_links)
+        except Exception as exc:
+            LOG.warning("Could not check embed permission; defaulting to text: %s", exc)
+            return False
 
     def _record_briefing(
         self,
