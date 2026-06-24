@@ -21,6 +21,7 @@ class OpenAICompatProvider:
             message=build_summary_user_message(items),
             max_tokens=self.config.max_tokens,
             temperature=self.config.temperature,
+            response_format={"type": "json_object"} if self.config.json_mode else None,
         )
         parsed = parse_summary_response(str(content), item_count=len(items))
         if parsed is None:
@@ -52,8 +53,9 @@ class OpenAICompatProvider:
         message: str,
         max_tokens: int,
         temperature: float,
+        response_format: dict[str, str] | None = None,
     ) -> str:
-        payload = {
+        payload: dict[str, object] = {
             "model": self.config.model,
             "temperature": temperature,
             "max_tokens": max_tokens,
@@ -62,6 +64,8 @@ class OpenAICompatProvider:
                 {"role": "user", "content": message},
             ],
         }
+        if response_format is not None:
+            payload["response_format"] = response_format
         response = httpx.post(
             self.config.base_url.rstrip("/") + "/chat/completions",
             json=payload,

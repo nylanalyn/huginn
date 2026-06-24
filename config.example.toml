@@ -35,6 +35,10 @@ temperature = 0.2
 timeout_seconds = 600
 max_tokens = 700
 persona_path = "personas/default.md"
+# Ask the endpoint to constrain summary output to valid JSON. Recommended for
+# small local models that otherwise emit malformed/truncated JSON. Set false
+# only if your endpoint rejects the response_format parameter.
+json_mode = true
 
 [profiles.daily]
 sections = ["weather", "calendar", "news"]

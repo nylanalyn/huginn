@@ -71,6 +71,9 @@ class LlmConfig(WarnUnknownModel):
     timeout_seconds: int = 600
     max_tokens: int = 700
     persona_path: str = "personas/default.md"
+    # Request JSON-mode for summaries (response_format=json_object). Constrains
+    # the endpoint to valid JSON, which small local models otherwise get wrong.
+    json_mode: bool = True
 
 
 class ProfileConfig(WarnUnknownModel):
