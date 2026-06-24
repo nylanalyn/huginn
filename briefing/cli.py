@@ -143,7 +143,10 @@ def run_command(args: argparse.Namespace) -> int:
                 f"Discord webhook environment variable {config.discord.webhook_url_env} is not set"
             )
         sender = DiscordWebhookSender(webhook_url=webhook_url)
-        messages = sender.send_sections(rendered)
+        if config.discord.use_embeds:
+            messages = sender.send_section_embeds(rendered)
+        else:
+            messages = sender.send_sections(rendered)
         Database(config.bot.database_path).record_sent_briefing(
             profile=args.profile,
             section_names=section_names,

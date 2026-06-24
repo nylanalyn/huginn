@@ -18,7 +18,7 @@ from briefing.db import Database, StoredItem
 from briefing.llm.base import LlmProvider, SummaryRequestItem
 from briefing.llm.openai_compat import OpenAICompatProvider
 from briefing.llm.prompt import build_system_prompt, llm_enabled_for_section, prompt_hash
-from briefing.sections.base import Item, RenderedSection, RunContext
+from briefing.sections.base import Item, RenderedSection, RunContext, SectionCard
 from briefing.utils.article import fetch_article_text
 from briefing.utils.hashing import dedup_hash_for_entry
 from briefing.utils.time import cutoff_from_hours, parse_duration_hours, to_utc_iso, utc_now
@@ -96,6 +96,7 @@ class RssSection:
         lede, summaries = self._summaries_for_items(items, context)
         if lede:
             lines.append(lede)
+        cards: list[SectionCard] = []
         for item in items:
             summary = summaries.get(item.id)
             if summary:
@@ -104,6 +105,15 @@ class RssSection:
                 lines.append(f"* {item.title}")
             if item.url:
                 link_lines.append(item.url)
+            cards.append(
+                SectionCard(
+                    title=item.title,
+                    url=item.url,
+                    summary=summary,
+                    source=item.source,
+                    published_at=item.published_at,
+                )
+            )
         if not lines:
             lines.append("No new items.")
         return RenderedSection(
@@ -111,6 +121,7 @@ class RssSection:
             lines=lines,
             link_lines=link_lines,
             item_ids=[item.id for item in items],
+            cards=cards,
         )
 
     def _summaries_for_items(

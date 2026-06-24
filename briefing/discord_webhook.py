@@ -34,15 +34,29 @@ class DiscordWebhookSender:
             for index, message in enumerate(messages):
                 if index:
                     time.sleep(self.min_delay_seconds)
-                self._post_with_retries(client, message)
+                self._post_with_retries(client, {"content": message})
         return messages
 
-    def _post_with_retries(self, client: httpx.Client, content: str) -> None:
+    def send_section_embeds(self, sections: list[RenderedSection]) -> list[list[dict[str, Any]]]:
+        from briefing.render.discord_embed import batch_embeds_for_messages, build_briefing_embeds
+
+        batches = batch_embeds_for_messages(build_briefing_embeds(sections))
+        if not batches:
+            batches = [[{"title": "Briefing", "description": "(empty briefing)"}]]
+
+        with httpx.Client(timeout=self.timeout_seconds) as client:
+            for index, batch in enumerate(batches):
+                if index:
+                    time.sleep(self.min_delay_seconds)
+                self._post_with_retries(client, {"embeds": batch})
+        return batches
+
+    def _post_with_retries(self, client: httpx.Client, payload: dict[str, Any]) -> None:
         backoffs = [2.0, 4.0, 8.0]
         rate_limit_count = 0
 
         while True:
-            response = client.post(self.webhook_url, json={"content": content})
+            response = client.post(self.webhook_url, json=payload)
             if response.status_code in {200, 204}:
                 return
 

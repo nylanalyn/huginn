@@ -4,6 +4,10 @@ database_path = "briefing.sqlite3"
 
 [discord]
 webhook_url_env = "DISCORD_WEBHOOK_URL"
+# Render briefings as rich embeds (hyperlinked titles + summary cards, colored
+# per section) instead of plain text with a trailing links block. Applies to
+# both webhook sends and the interactive bot.
+use_embeds = false
 
 [discord.interactive]
 enabled = false

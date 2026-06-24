@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Protocol
 
 from briefing.config import AppConfig
@@ -15,11 +16,23 @@ class Item:
 
 
 @dataclass(frozen=True)
+class SectionCard:
+    """Structured per-item data for rich (embed) rendering."""
+
+    title: str
+    url: str | None = None
+    summary: str | None = None
+    source: str | None = None
+    published_at: datetime | None = None
+
+
+@dataclass(frozen=True)
 class RenderedSection:
     title: str
     lines: list[str] = field(default_factory=list)
     link_lines: list[str] = field(default_factory=list)
     item_ids: list[int] = field(default_factory=list)
+    cards: list[SectionCard] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

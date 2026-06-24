@@ -15,6 +15,7 @@ from briefing.intent import HELP_MESSAGE, RoutedIntent, route_mention_text
 from briefing.llm.base import LlmProvider
 from briefing.llm.openai_compat import OpenAICompatProvider
 from briefing.llm.prompt import build_chat_system_prompt
+from briefing.render.discord_embed import batch_embeds_for_messages, build_briefing_embeds
 from briefing.render.text import render_briefing
 from briefing.memory import (
     add_watch_text,
@@ -127,11 +128,8 @@ class BriefingDiscordBot(discord.Client):
                 routed.profile,
                 routed.sections,
             )
-        messages = split_sections_for_discord(rendered)
-        if not messages:
-            messages = ["(empty briefing)"]
-        for content in messages:
-            await message.channel.send(content)
+        for payload in self._briefing_payloads(rendered):
+            await message.channel.send(**payload)
 
     def _register_commands(self) -> None:
         briefing_group = app_commands.Group(name="briefing", description="Generate a briefing")
@@ -292,11 +290,8 @@ class BriefingDiscordBot(discord.Client):
             return
 
         rendered = await asyncio.to_thread(self._render_for_interaction, profile, sections)
-        messages = split_sections_for_discord(rendered)
-        if not messages:
-            messages = ["(empty briefing)"]
-        for message in messages:
-            await interaction.followup.send(message)
+        for payload in self._briefing_payloads(rendered):
+            await interaction.followup.send(**payload)
 
     async def _handle_text_command(self, interaction: discord.Interaction, callback) -> None:
         await interaction.response.defer(thinking=True)
@@ -326,6 +321,22 @@ class BriefingDiscordBot(discord.Client):
         rendered = render_sections(section_names, context)
         self._record_briefing(profile, section_names, rendered)
         return rendered
+
+    def _briefing_payloads(self, rendered) -> list[dict]:
+        # Returns kwargs for Discord's send(): either {"content": str} or
+        # {"embeds": [...]} depending on the use_embeds config flag.
+        if self.config.discord.use_embeds:
+            batches = batch_embeds_for_messages(build_briefing_embeds(rendered))
+            if not batches:
+                return [{"content": "(empty briefing)"}]
+            return [
+                {"embeds": [discord.Embed.from_dict(embed) for embed in batch]}
+                for batch in batches
+            ]
+        messages = split_sections_for_discord(rendered)
+        if not messages:
+            messages = ["(empty briefing)"]
+        return [{"content": message} for message in messages]
 
     def _record_briefing(
         self,

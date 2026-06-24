@@ -59,6 +59,7 @@ class DiscordInteractiveConfig(WarnUnknownModel):
 
 class DiscordConfig(WarnUnknownModel):
     webhook_url_env: str = "DISCORD_WEBHOOK_URL"
+    use_embeds: bool = False
     interactive: DiscordInteractiveConfig = Field(default_factory=DiscordInteractiveConfig)
 
 
