@@ -9,6 +9,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import httpx
+import recurring_ical_events
 from icalendar import Calendar
 
 from briefing.config import CalendarSectionConfig
@@ -84,13 +85,31 @@ def load_ics_url_calendar(config: CalendarSectionConfig, timezone: ZoneInfo) -> 
 
     response = httpx.get(url, timeout=ICS_TIMEOUT_SECONDS, follow_redirects=True)
     response.raise_for_status()
-    return parse_ics_calendar(response.content, timezone)
+    window_start = datetime.now(timezone)
+    window_end = window_start + timedelta(hours=config.lookahead_hours)
+    return parse_ics_calendar(
+        response.content,
+        timezone,
+        window_start=window_start,
+        window_end=window_end,
+    )
 
 
-def parse_ics_calendar(content: bytes, timezone: ZoneInfo) -> list[CalendarEvent]:
+def parse_ics_calendar(
+    content: bytes,
+    timezone: ZoneInfo,
+    *,
+    window_start: datetime,
+    window_end: datetime,
+) -> list[CalendarEvent]:
+    # Expand recurrence rules (RRULE/RDATE/EXDATE and overrides) into concrete
+    # occurrences within the lookahead window. A plain VEVENT walk would only
+    # ever see the first instance of a repeating event, so weekly meetings would
+    # silently never appear.
     calendar = Calendar.from_ical(content)
+    occurrences = recurring_ical_events.of(calendar).between(window_start, window_end)
     events: list[CalendarEvent] = []
-    for component in calendar.walk("VEVENT"):
+    for component in occurrences:
         summary = str(component.get("summary", "")).strip()
         dtstart = component.get("dtstart")
         if not summary or dtstart is None:
@@ -111,6 +130,7 @@ def parse_ics_calendar(content: bytes, timezone: ZoneInfo) -> list[CalendarEvent
                 all_day=all_day,
             )
         )
+    events.sort(key=lambda event: event.start)
     return events
 
 

@@ -178,13 +178,69 @@ END:VEVENT
 END:VCALENDAR
 """
 
-    events = parse_ics_calendar(ics, ZoneInfo("America/New_York"))
+    timezone = ZoneInfo("America/New_York")
+    events = parse_ics_calendar(
+        ics,
+        timezone,
+        window_start=datetime(2026, 6, 12, 0, 0, tzinfo=timezone),
+        window_end=datetime(2026, 6, 14, 0, 0, tzinfo=timezone),
+    )
 
     assert [event.summary for event in events] == ["Standup", "Trash day"]
     assert events[0].location == "Zoom"
-    assert format_event(events[0], ZoneInfo("America/New_York")) == "9:00 AM-9:30 AM - Standup (Zoom)"
+    assert format_event(events[0], timezone) == "9:00 AM-9:30 AM - Standup (Zoom)"
     assert events[1].all_day is True
-    assert format_event(events[1], ZoneInfo("America/New_York")) == "All day - Trash day"
+    assert format_event(events[1], timezone) == "All day - Trash day"
+
+
+def test_ics_calendar_expands_recurring_events() -> None:
+    ics = b"""BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:standup@example.com
+DTSTART:20260601T130000Z
+DTEND:20260601T133000Z
+RRULE:FREQ=DAILY;COUNT=10
+SUMMARY:Daily standup
+END:VEVENT
+END:VCALENDAR
+"""
+    timezone = ZoneInfo("America/New_York")
+    events = parse_ics_calendar(
+        ics,
+        timezone,
+        window_start=datetime(2026, 6, 3, 0, 0, tzinfo=timezone),
+        window_end=datetime(2026, 6, 5, 0, 0, tzinfo=timezone),
+    )
+
+    assert [event.summary for event in events] == ["Daily standup", "Daily standup"]
+    assert [event.start.astimezone(timezone).day for event in events] == [3, 4]
+    assert all(event.start.astimezone(timezone).hour == 9 for event in events)
+
+
+def test_ics_calendar_recurring_event_excludes_cancelled_occurrence() -> None:
+    ics = b"""BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:standup@example.com
+DTSTART:20260601T130000Z
+DTEND:20260601T133000Z
+RRULE:FREQ=DAILY;COUNT=10
+EXDATE:20260604T130000Z
+SUMMARY:Daily standup
+END:VEVENT
+END:VCALENDAR
+"""
+    timezone = ZoneInfo("America/New_York")
+    events = parse_ics_calendar(
+        ics,
+        timezone,
+        window_start=datetime(2026, 6, 3, 0, 0, tzinfo=timezone),
+        window_end=datetime(2026, 6, 6, 0, 0, tzinfo=timezone),
+    )
+
+    # 06-04 is excluded via EXDATE; 06-03 and 06-05 remain.
+    assert [event.start.astimezone(timezone).day for event in events] == [3, 5]
 
 
 def test_missing_ics_env_becomes_section_notice(tmp_path: Path, monkeypatch) -> None:
