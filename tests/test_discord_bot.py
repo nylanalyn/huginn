@@ -8,7 +8,7 @@ from briefing.discord_bot import (
     CHAT_UNAVAILABLE_MESSAGE,
     BriefingDiscordBot,
     InteractionIdentity,
-    _split_text_for_discord,
+    _command_reply_chunks,
     interaction_allowed,
 )
 
@@ -123,7 +123,11 @@ def test_mention_chat_disabled_llm_returns_fallback(tmp_path: Path) -> None:
 
 
 def test_empty_text_command_result_is_explicit() -> None:
-    assert _split_text_for_discord("") == ["Result\n(empty result)"]
+    assert _command_reply_chunks("") == ["(empty result)"]
+
+
+def test_text_command_reply_has_no_section_header() -> None:
+    assert _command_reply_chunks("Watch terms:\n* gojira") == ["Watch terms:\n* gojira"]
 
 
 def test_mention_chat_includes_and_records_opt_in_memory(tmp_path: Path) -> None:

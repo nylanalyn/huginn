@@ -88,6 +88,13 @@ def split_sections_for_discord(
     return messages
 
 
+def split_text_for_discord(text: str, limit: int = DISCORD_CONTENT_LIMIT) -> list[str]:
+    """Chunk plain text into Discord-sized messages. Blank text yields []."""
+    if not text.strip():
+        return []
+    return _split_text(text, limit)
+
+
 def _section_to_text(section: RenderedSection, *, include_links: bool = True) -> str:
     body = "\n".join(section.lines) if section.lines else "(no items)"
     if include_links and section.link_lines:

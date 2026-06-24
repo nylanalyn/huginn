@@ -10,7 +10,7 @@ from discord import app_commands
 from briefing.actions import feeds_list_text, summarize_url_text
 from briefing.config import AppConfig
 from briefing.core import render_sections
-from briefing.discord_webhook import DISCORD_CONTENT_LIMIT, split_sections_for_discord
+from briefing.discord_webhook import split_sections_for_discord, split_text_for_discord
 from briefing.intent import HELP_MESSAGE, RoutedIntent, route_mention_text
 from briefing.llm.base import LlmProvider
 from briefing.llm.openai_compat import OpenAICompatProvider
@@ -105,7 +105,7 @@ class BriefingDiscordBot(discord.Client):
                         mention_text,
                         identity,
                     )
-                chunks = _split_plain_text_for_discord(text)
+                chunks = split_text_for_discord(text)
                 if chunks:
                     await message.reply(chunks[0], mention_author=False)
                     for content in chunks[1:]:
@@ -117,7 +117,7 @@ class BriefingDiscordBot(discord.Client):
         if routed.text_action:
             async with message.channel.typing():
                 text = await asyncio.to_thread(self._text_for_interaction, routed, identity)
-            for content in _split_text_for_discord(text):
+            for content in _command_reply_chunks(text):
                 await message.channel.send(content)
             return
 
@@ -309,7 +309,7 @@ class BriefingDiscordBot(discord.Client):
             LOG.warning("Discord text command failed: %s", exc)
             await interaction.followup.send(f"Command failed: {exc}")
             return
-        for message in _split_text_for_discord(text):
+        for message in _command_reply_chunks(text):
             await interaction.followup.send(message)
 
     def _render_for_interaction(
@@ -439,36 +439,10 @@ def _strip_bot_mentions(content: str, display_name: str) -> str:
     return content.replace("@" + display_name, "").strip()
 
 
-def _split_text_for_discord(text: str) -> list[str]:
-    from briefing.sections.base import RenderedSection
-
-    lines = text.splitlines() if text.strip() else ["(empty result)"]
-    return split_sections_for_discord([RenderedSection(title="Result", lines=lines)])
-
-
-def _split_plain_text_for_discord(text: str) -> list[str]:
-    if len(text) <= DISCORD_CONTENT_LIMIT:
-        return [text] if text else []
-    chunks: list[str] = []
-    current = ""
-    for line in text.splitlines() or [text]:
-        pending = line
-        while pending:
-            separator_len = 1 if current else 0
-            remaining = DISCORD_CONTENT_LIMIT - len(current) - separator_len
-            if remaining <= 0:
-                chunks.append(current)
-                current = ""
-                continue
-            piece = pending[:remaining]
-            current = piece if not current else f"{current}\n{piece}"
-            pending = pending[remaining:]
-            if pending:
-                chunks.append(current)
-                current = ""
-    if current:
-        chunks.append(current)
-    return chunks
+def _command_reply_chunks(text: str) -> list[str]:
+    # Command/text-action replies already contain their own content, so they
+    # are sent as plain chunks (no section header). Empty results are explicit.
+    return split_text_for_discord(text) or ["(empty result)"]
 
 
 async def run_discord_bot(config: AppConfig, token: str) -> None:
