@@ -62,5 +62,5 @@ class PlaceholderSection:
     def render(self, items: list, context: RunContext) -> RenderedSection:
         return RenderedSection(
             title=self.name.title(),
-            lines=[f"{self.name} section is configured; implementation arrives in a later stage."],
+            lines=[f"No handler available for section '{self.name}'."],
         )

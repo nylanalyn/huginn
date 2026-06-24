@@ -110,12 +110,15 @@ def conversation_context_text(
         if messages:
             parts.append("Recent opt-in conversation context:")
             token_budget = config.discord.interactive.conversation_memory_max_tokens
+            running_len = len("\n".join(parts))
             for row in messages:
                 role = str(row["role"])
                 content = _collapse(str(row["content"]))
-                if _approx_tokens("\n".join(parts) + content) > token_budget:
+                if max(1, (running_len + len(content)) // 4) > token_budget:
                     break
-                parts.append(f"- {role}: {content}")
+                line = f"- {role}: {content}"
+                parts.append(line)
+                running_len += len(line) + 1  # +1 for the joining newline
 
     return "\n".join(parts)
 
@@ -171,7 +174,3 @@ def _snippet(body: str, query: str, *, radius: int = 90) -> str:
 
 def _collapse(value: str) -> str:
     return " ".join(value.split())
-
-
-def _approx_tokens(value: str) -> int:
-    return max(1, len(value) // 4)
